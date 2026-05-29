@@ -1,0 +1,19 @@
+# Gradle
+.gradle/
+build/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.kotlin/
+
+# Local config / secrets
+.env
+*.log
+
+# OS
+.DS_Store
