@@ -1,5 +1,8 @@
 package dev.jskrzypczak.photovault.server
 
+import dev.jskrzypczak.photovault.server.plugins.configureRouting
+import dev.jskrzypczak.photovault.server.plugins.configureSerialization
+import dev.jskrzypczak.photovault.server.plugins.configureStatusPages
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
@@ -17,7 +20,11 @@ class HealthRoutesTest {
 
     @Test
     fun `GET v1 health returns 200 with ok status and version`() = testApplication {
-        application { module() }
+        application {
+            configureSerialization()
+            configureStatusPages()
+            configureRouting("1.0.0")
+        }
 
         val response = client.get("/v1/health")
 

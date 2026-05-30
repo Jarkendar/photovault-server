@@ -7,3 +7,8 @@ ktor:
 
 photovault:
   version: "1.0.0"
+
+db:
+  url: ${DB_URL:jdbc:postgresql://localhost:5432/photovault}
+  user: ${DB_USER:photovault}
+  password: ${DB_PASSWORD:change-me}

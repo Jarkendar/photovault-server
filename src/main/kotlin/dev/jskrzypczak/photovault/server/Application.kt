@@ -1,5 +1,6 @@
 package dev.jskrzypczak.photovault.server
 
+import dev.jskrzypczak.photovault.server.plugins.configureDatabase
 import dev.jskrzypczak.photovault.server.plugins.configureMonitoring
 import dev.jskrzypczak.photovault.server.plugins.configureRouting
 import dev.jskrzypczak.photovault.server.plugins.configureSerialization
@@ -14,7 +15,8 @@ import io.ktor.server.application.Application
  *   1. Serialization — registers the JSON content type converter
  *   2. Monitoring — logs requests before they are dispatched
  *   3. StatusPages — intercepts thrown exceptions (must be before Routing)
- *   4. Routing — dispatches requests to handler functions
+ *   4. Database — HikariCP pool, schema creation, seed data
+ *   5. Routing — dispatches requests to handler functions
  */
 fun Application.module() {
     val version = environment.config.propertyOrNull("photovault.version")?.getString() ?: "unknown"
@@ -22,5 +24,6 @@ fun Application.module() {
     configureSerialization()
     configureMonitoring()
     configureStatusPages()
+    configureDatabase()
     configureRouting(version)
 }
