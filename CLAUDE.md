@@ -19,10 +19,10 @@ java -jar build/libs/photovault-server.jar
 ./gradlew test
 
 # Run a single test class
-./gradlew test --tests "dev.jskrzypczak.photovault.SomeTest"
+./gradlew test --tests "dev.jskrzypczak.photovault.server.SomeTest"
 
 # Run a single test method
-./gradlew test --tests "dev.jskrzypczak.photovault.SomeTest.methodName"
+./gradlew test --tests "dev.jskrzypczak.photovault.server.SomeTest.methodName"
 ```
 
 ## Architecture

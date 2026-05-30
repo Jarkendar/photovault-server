@@ -1,0 +1,9 @@
+ktor:
+  deployment:
+    port: ${SERVER_PORT:8080}
+  application:
+    modules:
+      - dev.jskrzypczak.photovault.server.ApplicationKt.module
+
+photovault:
+  version: "1.0.0"
