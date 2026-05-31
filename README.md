@@ -21,7 +21,8 @@ The server is a single-module Ktor application using `EngineMain` as the entry p
 | Plugins | `plugins/` | `ContentNegotiation`, `CallLogging`, `StatusPages`, `Authentication` (JWT), `Routing` |
 | Auth | `auth/` | `JwtConfig`, `JwtService` (token signing/verification), `AuthService` (login/refresh/logout/me) |
 | Photos | `photos/` | `PhotoService` (list + single-photo queries), `Cursor` (opaque pagination cursor encode/decode) |
-| Routes | `routes/` | One file per resource (`healthRoutes`, `authRoutes`, `photoRoutes`, …) |
+| Metadata | `metadata/` | `TagService`, `CategoryService`, `LabelService` (CRUD for metadata resources) |
+| Routes | `routes/` | One file per resource (`healthRoutes`, `authRoutes`, `photoRoutes`, `tagRoutes`, …) |
 | DTOs | `dto/` | `@Serializable` classes mirroring the contract |
 | Errors | `errors/` | `ApiException`, `ProblemDetails`, `respondProblem` |
 | DB tables | `db/tables/` | Exposed `Table` objects; schema created on startup via `initDatabase()` |
@@ -98,6 +99,32 @@ Pagination is cursor-based (`uploadedAt DESC, id DESC`) — stable under concurr
 no `totalCount` by design (see [`contract/api.md`](contract/api.md) for rationale). Tags, categories,
 and labels are batch-fetched per page (no N+1). The cursor is base64-url encoded JSON and is opaque to the client.
 
+### Tags
+
+| Endpoint | Auth | Description |
+|---|---|---|
+| `GET /v1/tags` | required | List all tags with `photoCount`; `?usedOnly=true` filters to assigned only |
+| `POST /v1/tags` | required | Create a tag (`name` must start with `#`, unique case-insensitive); 201 + `Location` |
+| `PATCH /v1/tags/{id}` | required | Rename a tag; photo links are preserved |
+| `DELETE /v1/tags/{id}` | required | Delete a tag; cascades to `photo_tags` join table |
+
+### Categories
+
+| Endpoint | Auth | Description |
+|---|---|---|
+| `GET /v1/categories` | required | List all categories with `photoCount`; `?usedOnly=true` filters to assigned only |
+| `POST /v1/categories` | required | Create a category (`name` + `colorHex` as `#RRGGBB`); 201 + `Location` |
+| `PATCH /v1/categories/{id}` | required | Update name and/or colorHex (both optional); photo links preserved |
+| `DELETE /v1/categories/{id}` | required | Delete a category; cascades to `photo_categories` join table |
+
+### Labels
+
+| Endpoint | Auth | Description |
+|---|---|---|
+| `GET /v1/labels` | required | List the six fixed system labels (red/orange/yellow/green/blue/purple) with `photoCount` |
+
+Labels are read-only (no POST/PATCH/DELETE). The fixed set is seeded at startup via `seedLabels()`.
+
 ## Running
 
 **With Docker (recommended):**
@@ -148,7 +175,7 @@ production (generate with `openssl rand -base64 48`).
 | 3 | Auth: JWT login/refresh/logout, BCrypt, refresh-token store | ✅ done |
 | 4 | Read photos: `GET /v1/photos` (cursor pagination, filters) + `GET /v1/photos/{id}` | ✅ done |
 | 5 | Binary assets: thumbnail / medium / original (+ 423 while processing) | ✅ done |
-| 6 | Tags / Categories / Labels (full CRUD; labels read-only) | ⬜ |
+| 6 | Tags / Categories / Labels (full CRUD; labels read-only) | ✅ done |
 | 7 | `PATCH /v1/photos/{id}` — favourites + set-semantics for tag/category/label lists | ⬜ |
 | 8 | Uploads: multipart 202 + async processing pipeline (Thumbnailator) | ⬜ |
 | 9 | Hardening: full error-slug coverage, size/MIME limits, `validation-failed` map | ⬜ |

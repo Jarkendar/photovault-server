@@ -40,3 +40,12 @@ data class LabelDto(
     val colorHex: String,
     val photoCount: Long,
 )
+
+@Serializable data class TagListResponse(val items: List<TagDto>)
+@Serializable data class CategoryListResponse(val items: List<CategoryDto>)
+@Serializable data class LabelListResponse(val items: List<LabelDto>)
+
+@Serializable data class CreateTagRequest(val name: String)
+@Serializable data class UpdateTagRequest(val name: String)
+@Serializable data class CreateCategoryRequest(val name: String, val colorHex: String)
+@Serializable data class UpdateCategoryRequest(val name: String? = null, val colorHex: String? = null)
