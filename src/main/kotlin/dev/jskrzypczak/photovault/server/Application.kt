@@ -3,6 +3,7 @@ package dev.jskrzypczak.photovault.server
 import dev.jskrzypczak.photovault.server.auth.AuthService
 import dev.jskrzypczak.photovault.server.auth.JwtConfig
 import dev.jskrzypczak.photovault.server.auth.JwtService
+import dev.jskrzypczak.photovault.server.photos.PhotoService
 import dev.jskrzypczak.photovault.server.plugins.configureDatabase
 import dev.jskrzypczak.photovault.server.plugins.configureMonitoring
 import dev.jskrzypczak.photovault.server.plugins.configureRouting
@@ -28,11 +29,12 @@ fun Application.module() {
     val jwtConfig = JwtConfig.from(environment.config)
     val jwtService = JwtService(jwtConfig)
     val authService = AuthService(jwtService)
+    val photoService = PhotoService()
 
     configureSerialization()
     configureMonitoring()
     configureStatusPages()
     configureDatabase()
     configureSecurity(jwtConfig)
-    configureRouting(version, authService)
+    configureRouting(version, authService, photoService)
 }

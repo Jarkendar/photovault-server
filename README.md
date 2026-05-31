@@ -20,7 +20,8 @@ The server is a single-module Ktor application using `EngineMain` as the entry p
 |---|---|---|
 | Plugins | `plugins/` | `ContentNegotiation`, `CallLogging`, `StatusPages`, `Authentication` (JWT), `Routing` |
 | Auth | `auth/` | `JwtConfig`, `JwtService` (token signing/verification), `AuthService` (login/refresh/logout/me) |
-| Routes | `routes/` | One file per resource (`healthRoutes`, `authRoutes`, …) |
+| Photos | `photos/` | `PhotoService` (list + single-photo queries), `Cursor` (opaque pagination cursor encode/decode) |
+| Routes | `routes/` | One file per resource (`healthRoutes`, `authRoutes`, `photoRoutes`, …) |
 | DTOs | `dto/` | `@Serializable` classes mirroring the contract |
 | Errors | `errors/` | `ApiException`, `ProblemDetails`, `respondProblem` |
 | DB tables | `db/tables/` | Exposed `Table` objects; schema created on startup via `initDatabase()` |
@@ -52,6 +53,30 @@ Authorization: Bearer <accessToken>
 Tokens are signed with **HMAC256**. The access token carries a `rti` claim pointing to the
 paired refresh token's `jti`, so logout invalidates exactly that one session. Refresh tokens
 are stored in the `refresh_tokens` table and can be revoked individually.
+
+### Photos
+
+| Endpoint | Auth | Description |
+|---|---|---|
+| `GET /v1/photos` | required | Paginated photo list (cursor-based, newest first) |
+| `GET /v1/photos/{id}` | required | Single photo by id |
+
+**Query parameters for `GET /v1/photos`:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `cursor` | string | — | Opaque cursor from the previous page response |
+| `limit` | int | 30 | Page size (max 100) |
+| `q` | string | — | Free-text search across photo name, tag names, category names |
+| `tagIds` | csv | — | AND filter — photo must have **all** listed tag ids |
+| `categoryIds` | csv | — | AND filter — photo must be in **all** listed category ids |
+| `labelIds` | csv | — | AND filter — photo must carry **all** listed label ids |
+| `favoritesOnly` | bool | false | Return only favourited photos |
+| `uploadedBy` | string | — | Filter by uploader user id; `me` resolves to the authenticated user |
+
+Pagination is cursor-based (`uploadedAt DESC, id DESC`) — stable under concurrent inserts. There is
+no `totalCount` by design (see [`contract/api.md`](contract/api.md) for rationale). Tags, categories,
+and labels are batch-fetched per page (no N+1). The cursor is base64-url encoded JSON and is opaque to the client.
 
 ## Running
 
@@ -100,7 +125,7 @@ production (generate with `openssl rand -base64 48`).
 | 1 | Scaffold + Health + RFC 7807 + Docker | ✅ done |
 | 2 | DB layer: Exposed + PostgreSQL + Hikari + migrations | ✅ done |
 | 3 | Auth: JWT login/refresh/logout, BCrypt, refresh-token store | ✅ done |
-| 4 | Read photos: `GET /v1/photos` (cursor pagination, filters) + `GET /v1/photos/{id}` | ⬜ |
+| 4 | Read photos: `GET /v1/photos` (cursor pagination, filters) + `GET /v1/photos/{id}` | ✅ done |
 | 5 | Binary assets: thumbnail / medium / original (+ 423 while processing) | ⬜ |
 | 6 | Tags / Categories / Labels (full CRUD; labels read-only) | ⬜ |
 | 7 | `PATCH /v1/photos/{id}` — favourites + set-semantics for tag/category/label lists | ⬜ |
