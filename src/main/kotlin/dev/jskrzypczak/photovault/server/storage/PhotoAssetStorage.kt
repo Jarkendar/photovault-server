@@ -29,6 +29,33 @@ class PhotoAssetStorage(private val root: Path) {
         return resolved
     }
 
+    /**
+     * Writes [bytes] to [relativePath] under [root], creating parent directories as needed.
+     *
+     * Returns the same relative path string so callers can store it directly in the DB.
+     *
+     * @throws IllegalArgumentException if [relativePath] would escape [root].
+     */
+    fun write(relativePath: String, bytes: ByteArray): String {
+        val path = resolve(relativePath)
+        path.parent?.toFile()?.mkdirs()
+        path.toFile().writeBytes(bytes)
+        return relativePath
+    }
+
+    /**
+     * Deletes all asset files stored under the `photoId/` subdirectory.
+     *
+     * Best-effort — any failure is silently swallowed so callers can use this in cleanup
+     * paths without worrying about partial deletes.
+     */
+    fun deleteAll(photoId: String) {
+        try {
+            val dir = root.resolve(photoId).normalize().toFile()
+            if (dir.exists()) dir.deleteRecursively()
+        } catch (_: Exception) {}
+    }
+
     /** Returns `true` when the file at [path] exists on the filesystem. */
     fun exists(path: Path): Boolean = path.toFile().exists()
 

@@ -8,6 +8,7 @@ postgresql = "42.7.5"
 hikari = "6.2.1"
 bcrypt = "0.10.2"
 testcontainers = "1.21.3"
+thumbnailator = "0.4.20"
 
 [libraries]
 ktor-server-core = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }
@@ -35,6 +36,7 @@ junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "jun
 testcontainers-core = { module = "org.testcontainers:testcontainers", version.ref = "testcontainers" }
 testcontainers-postgresql = { module = "org.testcontainers:postgresql", version.ref = "testcontainers" }
 testcontainers-junit-jupiter = { module = "org.testcontainers:junit-jupiter", version.ref = "testcontainers" }
+thumbnailator = { module = "net.coobird:thumbnailator", version.ref = "thumbnailator" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

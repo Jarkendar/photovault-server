@@ -22,6 +22,7 @@ The server is a single-module Ktor application using `EngineMain` as the entry p
 | Auth | `auth/` | `JwtConfig`, `JwtService` (token signing/verification), `AuthService` (login/refresh/logout/me) |
 | Photos | `photos/` | `PhotoService` (list + single-photo queries), `Cursor` (opaque pagination cursor encode/decode) |
 | Metadata | `metadata/` | `TagService`, `CategoryService`, `LabelService` (CRUD for metadata resources) |
+| Uploads | `uploads/` | `UploadService` (multipart accept → async decode/resize/persist), `UploadRoutes` |
 | Routes | `routes/` | One file per resource (`healthRoutes`, `authRoutes`, `photoRoutes`, `tagRoutes`, …) |
 | DTOs | `dto/` | `@Serializable` classes mirroring the contract |
 | Errors | `errors/` | `ApiException`, `ProblemDetails`, `respondProblem` |
@@ -127,6 +128,30 @@ and labels are batch-fetched per page (no N+1). The cursor is base64-url encoded
 
 Labels are read-only (no POST/PATCH/DELETE). The fixed set is seeded at startup via `seedLabels()`.
 
+### Uploads
+
+| Endpoint | Auth | Description |
+|---|---|---|
+| `POST /v1/uploads` | required | Accept a `multipart/form-data` image upload; returns `202 Accepted` + `Location` header immediately |
+| `GET /v1/uploads` | required | List uploads for the authenticated user; optional `?status=` CSV filter |
+| `GET /v1/uploads/{id}` | required | Poll a single upload for status |
+| `DELETE /v1/uploads/{id}` | required | Cancel a cancellable upload (`204`); `409` if already terminal |
+
+**Upload lifecycle:** `processing → done | failed | cancelled`
+
+Since Ktor reads the full multipart body synchronously, the upload row starts directly at
+`processing` (`progress = 0.5`, `uploadedBytes == sizeBytes`). A background coroutine then
+decodes the image with `javax.imageio.ImageIO`, generates thumbnail (≤ 320 px) and medium
+(≤ 1280 px) JPEG derivatives via [Thumbnailator](https://github.com/coobird/thumbnailator),
+writes all three variants to disk, inserts the `photo-*` row, and transitions the upload to
+`done` with `photoId` set. Any decode or I/O failure transitions the upload to `failed`.
+
+**Supported formats:** `image/jpeg`, `image/png`. HEIC support is planned for M9.
+
+The optional `metadata` form part accepts a JSON string
+`{"tagIds":[],"categoryIds":[],"labelIds":[]}` to pre-link the resulting photo to existing
+tags, categories, and labels in one step.
+
 ## Running
 
 **With Docker (recommended):**
@@ -179,7 +204,7 @@ production (generate with `openssl rand -base64 48`).
 | 5 | Binary assets: thumbnail / medium / original (+ 423 while processing) | ✅ done |
 | 6 | Tags / Categories / Labels (full CRUD; labels read-only) | ✅ done |
 | 7 | `PATCH /v1/photos/{id}` + `DELETE /v1/photos/{id}` — favourites + set-semantics for tag/category/label lists; delete photo + assets | ✅ done |
-| 8 | Uploads: multipart 202 + async processing pipeline (Thumbnailator) | ⬜ |
+| 8 | Uploads: multipart 202 + async processing pipeline (Thumbnailator) | ✅ done |
 | 9 | Hardening: full error-slug coverage, size/MIME limits, `validation-failed` map | ⬜ |
 
 ## License
