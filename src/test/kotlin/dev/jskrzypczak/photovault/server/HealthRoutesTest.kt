@@ -1,12 +1,14 @@
 package dev.jskrzypczak.photovault.server
 
-import dev.jskrzypczak.photovault.server.plugins.configureRouting
 import dev.jskrzypczak.photovault.server.plugins.configureSerialization
 import dev.jskrzypczak.photovault.server.plugins.configureStatusPages
+import dev.jskrzypczak.photovault.server.routes.healthRoutes
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.routing.route
+import io.ktor.server.routing.routing
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -23,7 +25,9 @@ class HealthRoutesTest {
         application {
             configureSerialization()
             configureStatusPages()
-            configureRouting("1.0.0")
+            routing {
+                route("/v1") { healthRoutes("1.0.0") }
+            }
         }
 
         val response = client.get("/v1/health")

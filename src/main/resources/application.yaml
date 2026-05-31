@@ -12,3 +12,10 @@ db:
   url: ${DB_URL:jdbc:postgresql://localhost:5432/photovault}
   user: ${DB_USER:photovault}
   password: ${DB_PASSWORD:change-me}
+
+jwt:
+  secret: ${JWT_SECRET:dev-secret-change-me-in-production}
+  issuer: ${JWT_ISSUER:photovault}
+  audience: ${JWT_AUDIENCE:photovault-client}
+  accessTtlMinutes: ${JWT_ACCESS_TTL_MIN:60}
+  refreshTtlDays: ${JWT_REFRESH_TTL_DAYS:30}
