@@ -61,6 +61,8 @@ are stored in the `refresh_tokens` table and can be revoked individually.
 |---|---|---|
 | `GET /v1/photos` | required | Paginated photo list (cursor-based, newest first) |
 | `GET /v1/photos/{id}` | required | Single photo by id |
+| `PATCH /v1/photos/{id}` | required | Update `isFavorite`; replace tag / category / label lists (set semantics) |
+| `DELETE /v1/photos/{id}` | required | Delete photo, asset files, and all junction rows |
 | `GET /v1/photos/{id}/thumbnail` | required | Thumbnail binary (`image/jpeg`) |
 | `GET /v1/photos/{id}/medium` | required | Medium binary (`image/jpeg`) |
 | `GET /v1/photos/{id}/original` | required | Original binary (photo's own MIME type) |
@@ -176,7 +178,7 @@ production (generate with `openssl rand -base64 48`).
 | 4 | Read photos: `GET /v1/photos` (cursor pagination, filters) + `GET /v1/photos/{id}` | ✅ done |
 | 5 | Binary assets: thumbnail / medium / original (+ 423 while processing) | ✅ done |
 | 6 | Tags / Categories / Labels (full CRUD; labels read-only) | ✅ done |
-| 7 | `PATCH /v1/photos/{id}` — favourites + set-semantics for tag/category/label lists | ⬜ |
+| 7 | `PATCH /v1/photos/{id}` + `DELETE /v1/photos/{id}` — favourites + set-semantics for tag/category/label lists; delete photo + assets | ✅ done |
 | 8 | Uploads: multipart 202 + async processing pipeline (Thumbnailator) | ⬜ |
 | 9 | Hardening: full error-slug coverage, size/MIME limits, `validation-failed` map | ⬜ |
 

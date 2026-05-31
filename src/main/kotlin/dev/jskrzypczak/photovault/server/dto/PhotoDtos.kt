@@ -69,3 +69,24 @@ data class PhotoPage(
     val nextCursor: String? = null,
     val hasMore: Boolean,
 )
+
+/**
+ * Request body for `PATCH /v1/photos/{id}`.
+ *
+ * All fields are optional. Absent fields (null) mean "no change". A field
+ * present in the JSON body (even as an empty list) triggers a **replace** of
+ * the corresponding relation (set-replace semantics as defined in the contract).
+ *
+ * | JSON                | Kotlin value | Effect             |
+ * |---------------------|--------------|--------------------|
+ * | field omitted       | null         | no change          |
+ * | `"tagIds": []`      | emptyList()  | clear all tags     |
+ * | `"tagIds": ["x"]`   | listOf("x")  | replace with ["x"] |
+ */
+@Serializable
+data class UpdatePhotoRequest(
+    val isFavorite: Boolean? = null,
+    val tagIds: List<String>? = null,
+    val categoryIds: List<String>? = null,
+    val labelIds: List<String>? = null,
+)

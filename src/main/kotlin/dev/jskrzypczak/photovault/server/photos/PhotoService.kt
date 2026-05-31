@@ -15,6 +15,7 @@ import dev.jskrzypczak.photovault.server.dto.PhotoDto
 import dev.jskrzypczak.photovault.server.dto.PhotoPage
 import dev.jskrzypczak.photovault.server.dto.PhotoUploaderDto
 import dev.jskrzypczak.photovault.server.dto.TagDto
+import dev.jskrzypczak.photovault.server.dto.UpdatePhotoRequest
 import dev.jskrzypczak.photovault.server.errors.ApiException
 import dev.jskrzypczak.photovault.server.storage.AssetVariant
 import dev.jskrzypczak.photovault.server.storage.PhotoAssetStorage
@@ -31,12 +32,16 @@ import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.like
 import org.jetbrains.exposed.sql.Table
 import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.batchInsert
 import org.jetbrains.exposed.sql.count
+import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.innerJoin
 import org.jetbrains.exposed.sql.lowerCase
 import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
+import org.jetbrains.exposed.sql.update
+import org.slf4j.LoggerFactory
 import java.time.Instant
 
 /**
@@ -74,7 +79,7 @@ data class PhotoAsset(
 )
 
 /**
- * Domain service for read access to photos.
+ * Domain service for photo read and write operations.
  *
  * All database access is performed inside Exposed [transaction] blocks.
  * Pagination uses a cursor over `(uploadedAt DESC, id DESC)` so results are
@@ -84,6 +89,8 @@ data class PhotoAsset(
  *   backed by a temp directory in tests.
  */
 class PhotoService(private val storage: PhotoAssetStorage) {
+
+    private val log = LoggerFactory.getLogger(PhotoService::class.java)
 
     /**
      * Returns a single [PhotoDto] for the given [id].
@@ -108,6 +115,125 @@ class PhotoService(private val storage: PhotoAssetStorage) {
         val labels = fetchLabelsForPhotos(listOf(photoId))
 
         rowToDto(row, tags[photoId].orEmpty(), categories[photoId].orEmpty(), labels[photoId].orEmpty())
+    }
+
+    /**
+     * Partially updates a photo's metadata and returns the refreshed [PhotoDto].
+     *
+     * Each field in [req] is optional (null = no change). List fields use set-replace
+     * semantics: a non-null list (including empty) replaces the current relation in full.
+     *
+     * All referenced tag/category/label ids are validated before any mutation. If any
+     * id does not exist, a `validation-failed` 400 is thrown with a field-level `errors` map.
+     *
+     * @throws ApiException(photo-not-found, 404) when the photo does not exist.
+     * @throws ApiException(validation-failed, 400) when any referenced id is unknown.
+     */
+    fun updatePhoto(id: String, req: UpdatePhotoRequest): PhotoDto = transaction {
+        // 1 — verify the photo exists
+        Photos.selectAll().where { Photos.id eq id }.firstOrNull()
+            ?: throw ApiException(
+                slug = "photo-not-found",
+                httpStatus = HttpStatusCode.NotFound,
+                title = "Photo Not Found",
+                detail = "No photo with id '$id'",
+            )
+
+        // 2 — validate all referenced ids (collect errors before mutating anything)
+        val errors = mutableMapOf<String, List<String>>()
+
+        req.tagIds?.let { ids ->
+            if (ids.isNotEmpty()) {
+                val found = Tags.select(Tags.id).where { Tags.id inList ids }
+                    .map { it[Tags.id] }.toSet()
+                val missing = ids.filter { it !in found }
+                if (missing.isNotEmpty()) errors["tagIds"] = missing.map { "Tag '$it' does not exist" }
+            }
+        }
+        req.categoryIds?.let { ids ->
+            if (ids.isNotEmpty()) {
+                val found = Categories.select(Categories.id).where { Categories.id inList ids }
+                    .map { it[Categories.id] }.toSet()
+                val missing = ids.filter { it !in found }
+                if (missing.isNotEmpty()) errors["categoryIds"] = missing.map { "Category '$it' does not exist" }
+            }
+        }
+        req.labelIds?.let { ids ->
+            if (ids.isNotEmpty()) {
+                val found = Labels.select(Labels.id).where { Labels.id inList ids }
+                    .map { it[Labels.id] }.toSet()
+                val missing = ids.filter { it !in found }
+                if (missing.isNotEmpty()) errors["labelIds"] = missing.map { "Label '$it' does not exist" }
+            }
+        }
+
+        if (errors.isNotEmpty()) {
+            throw ApiException(
+                slug = "validation-failed",
+                httpStatus = HttpStatusCode.BadRequest,
+                title = "Validation Failed",
+                detail = "One or more referenced ids do not exist",
+                errors = errors,
+            )
+        }
+
+        // 3 — apply mutations
+        req.isFavorite?.let { fav ->
+            Photos.update({ Photos.id eq id }) { it[isFavorite] = fav }
+        }
+        req.tagIds?.let { ids ->
+            replaceRelation(PhotoTags, PhotoTags.photoId, PhotoTags.tagId, id, ids)
+        }
+        req.categoryIds?.let { ids ->
+            replaceRelation(PhotoCategories, PhotoCategories.photoId, PhotoCategories.categoryId, id, ids)
+        }
+        req.labelIds?.let { ids ->
+            replaceRelation(PhotoLabels, PhotoLabels.photoId, PhotoLabels.labelId, id, ids)
+        }
+
+        // 4 — return the refreshed photo (nested transaction reuses the current one)
+        getPhoto(id)
+    }
+
+    /**
+     * Deletes the photo with the given [id], its asset files, and all junction-table rows.
+     *
+     * Junction rows are removed via `ON DELETE CASCADE` FK constraints on [PhotoTags],
+     * [PhotoCategories], and [PhotoLabels]. Asset file deletion is best-effort — a missing
+     * file on disk is logged but does not fail the request.
+     *
+     * @throws ApiException(photo-not-found, 404) when the photo does not exist.
+     */
+    fun deletePhoto(id: String): Unit = transaction {
+        // Fetch row to capture asset paths before deleting
+        val row = Photos.selectAll().where { Photos.id eq id }.firstOrNull()
+            ?: throw ApiException(
+                slug = "photo-not-found",
+                httpStatus = HttpStatusCode.NotFound,
+                title = "Photo Not Found",
+                detail = "No photo with id '$id'",
+            )
+
+        val originalRelPath  = row[Photos.originalPath]
+        val mediumRelPath    = row[Photos.mediumPath]
+        val thumbnailRelPath = row[Photos.thumbnailPath]
+
+        // Remove DB row (junction table rows cascade automatically)
+        Photos.deleteWhere { Photos.id eq id }
+
+        // Best-effort delete asset files (failures are non-fatal)
+        fun tryDelete(relPath: String?) {
+            if (relPath == null) return
+            try {
+                val path = storage.resolve(relPath)
+                if (storage.exists(path)) storage.delete(path)
+            } catch (e: Exception) {
+                log.warn("Could not delete asset file '{}' for photo '{}': {}", relPath, id, e.message)
+            }
+        }
+        tryDelete(originalRelPath)
+        tryDelete(mediumRelPath)
+        tryDelete(thumbnailRelPath)
     }
 
     /**
@@ -270,6 +396,29 @@ class PhotoService(private val storage: PhotoAssetStorage) {
     }
 
     // ─── private helpers ──────────────────────────────────────────────────────
+
+    /**
+     * Replaces the entire relation between [photoId] and [newIds] in [table].
+     *
+     * Deletes all existing rows for [photoId] in [table], then batch-inserts
+     * a new row for each id in [newIds]. The junction primary key `(photoId, fkId)`
+     * prevents duplicates. Called only after all ids have been validated.
+     */
+    private fun replaceRelation(
+        table: Table,
+        photoIdCol: Column<String>,
+        fkCol: Column<String>,
+        photoId: String,
+        newIds: List<String>,
+    ) {
+        table.deleteWhere { photoIdCol eq photoId }
+        if (newIds.isNotEmpty()) {
+            table.batchInsert(newIds) { fkId ->
+                this[photoIdCol] = photoId
+                this[fkCol] = fkId
+            }
+        }
+    }
 
     /**
      * Builds a sub-query predicate that keeps only photo ids that have **all** listed [ids]

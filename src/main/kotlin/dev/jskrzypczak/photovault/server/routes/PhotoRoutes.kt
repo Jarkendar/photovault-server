@@ -1,5 +1,6 @@
 package dev.jskrzypczak.photovault.server.routes
 
+import dev.jskrzypczak.photovault.server.dto.UpdatePhotoRequest
 import dev.jskrzypczak.photovault.server.errors.ApiException
 import dev.jskrzypczak.photovault.server.photos.PhotoQuery
 import dev.jskrzypczak.photovault.server.photos.PhotoService
@@ -13,21 +14,26 @@ import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.jwt.JWTPrincipal
 import io.ktor.server.auth.principal
 import io.ktor.server.http.content.LocalFileContent
+import io.ktor.server.request.receive
 import io.ktor.server.response.cacheControl
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
+import io.ktor.server.routing.patch
 import io.ktor.server.routing.route
 
 /**
- * Registers photo read endpoints under the caller's route prefix (expected: /v1).
+ * Registers all photo endpoints under the caller's route prefix (expected: /v1).
  *
  * All endpoints require the "auth-jwt" principal:
- *   GET /photos                  — paginated photo list with optional filters
- *   GET /photos/{id}             — single photo by id
- *   GET /photos/{id}/thumbnail   — thumbnail binary (image/jpeg)
- *   GET /photos/{id}/medium      — medium binary (image/jpeg)
- *   GET /photos/{id}/original    — original binary (photo's own MIME type)
+ *   GET    /photos               — paginated photo list with optional filters
+ *   GET    /photos/{id}          — single photo by id
+ *   PATCH  /photos/{id}          — update isFavorite / tag / category / label lists
+ *   DELETE /photos/{id}          — delete photo and asset files
+ *   GET    /photos/{id}/thumbnail   — thumbnail binary (image/jpeg)
+ *   GET    /photos/{id}/medium      — medium binary (image/jpeg)
+ *   GET    /photos/{id}/original    — original binary (photo's own MIME type)
  */
 fun Route.photoRoutes(photoService: PhotoService) {
     authenticate("auth-jwt") {
@@ -81,6 +87,28 @@ fun Route.photoRoutes(photoService: PhotoService) {
                 val id = call.parameters["id"]!!
                 val photo = photoService.getPhoto(id)
                 call.respond(HttpStatusCode.OK, photo)
+            }
+
+            patch("/{id}") {
+                val id = call.parameters["id"]!!
+                val req = try {
+                    call.receive<UpdatePhotoRequest>()
+                } catch (e: Exception) {
+                    throw ApiException(
+                        slug = "validation-failed",
+                        httpStatus = HttpStatusCode.BadRequest,
+                        title = "Validation Failed",
+                        detail = "Request body is missing or malformed",
+                    )
+                }
+                val photo = photoService.updatePhoto(id, req)
+                call.respond(HttpStatusCode.OK, photo)
+            }
+
+            delete("/{id}") {
+                val id = call.parameters["id"]!!
+                photoService.deletePhoto(id)
+                call.respond(HttpStatusCode.NoContent, "")
             }
 
             get("/{id}/thumbnail") { respondAsset(call, photoService, AssetVariant.THUMBNAIL) }

@@ -31,4 +31,15 @@ class PhotoAssetStorage(private val root: Path) {
 
     /** Returns `true` when the file at [path] exists on the filesystem. */
     fun exists(path: Path): Boolean = path.toFile().exists()
+
+    /**
+     * Deletes the file at [path] if it exists.
+     *
+     * Silently ignores a failed delete — callers treat missing asset files
+     * as a non-fatal condition.
+     */
+    fun delete(path: Path) {
+        val file = path.toFile()
+        if (file.exists()) file.delete()
+    }
 }
