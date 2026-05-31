@@ -16,6 +16,8 @@ import dev.jskrzypczak.photovault.server.dto.PhotoPage
 import dev.jskrzypczak.photovault.server.dto.PhotoUploaderDto
 import dev.jskrzypczak.photovault.server.dto.TagDto
 import dev.jskrzypczak.photovault.server.errors.ApiException
+import dev.jskrzypczak.photovault.server.storage.AssetVariant
+import dev.jskrzypczak.photovault.server.storage.PhotoAssetStorage
 import io.ktor.http.HttpStatusCode
 import org.jetbrains.exposed.sql.AbstractQuery
 import org.jetbrains.exposed.sql.Column
@@ -59,13 +61,29 @@ data class PhotoQuery(
 )
 
 /**
+ * Holds a resolved binary photo asset ready to be streamed to the client.
+ *
+ * [file]        — the actual file on disk.
+ * [contentType] — MIME type string (e.g. "image/jpeg").
+ * [etag]        — deterministic ETag for the asset (e.g. `"photo-abc-thumbnail"`).
+ */
+data class PhotoAsset(
+    val file: java.io.File,
+    val contentType: String,
+    val etag: String,
+)
+
+/**
  * Domain service for read access to photos.
  *
  * All database access is performed inside Exposed [transaction] blocks.
  * Pagination uses a cursor over `(uploadedAt DESC, id DESC)` so results are
  * stable under concurrent inserts — matches the index `idx_photos_cursor`.
+ *
+ * @param storage resolver for binary asset files on disk; injected so it can be
+ *   backed by a temp directory in tests.
  */
-class PhotoService {
+class PhotoService(private val storage: PhotoAssetStorage) {
 
     /**
      * Returns a single [PhotoDto] for the given [id].
@@ -90,6 +108,75 @@ class PhotoService {
         val labels = fetchLabelsForPhotos(listOf(photoId))
 
         rowToDto(row, tags[photoId].orEmpty(), categories[photoId].orEmpty(), labels[photoId].orEmpty())
+    }
+
+    /**
+     * Returns the binary [PhotoAsset] for the given [photoId] and [variant].
+     *
+     * Rules:
+     * - [AssetVariant.THUMBNAIL] / [AssetVariant.MEDIUM]: throw 423 when `processingStatus == "processing"`.
+     * - [AssetVariant.ORIGINAL]: always available regardless of processing status.
+     * - Path not set in DB or file missing on disk: throw 404.
+     *
+     * @throws ApiException(photo-not-found, 404) when the photo does not exist, the path
+     *   column is null, or the file is missing from disk.
+     * @throws ApiException(processing-not-ready, 423) for thumbnail/medium while processing.
+     */
+    fun getAsset(photoId: String, variant: AssetVariant): PhotoAsset = transaction {
+        val row = Photos
+            .selectAll()
+            .where { Photos.id eq photoId }
+            .firstOrNull()
+            ?: throw ApiException(
+                slug = "photo-not-found",
+                httpStatus = HttpStatusCode.NotFound,
+                title = "Photo Not Found",
+                detail = "No photo with id '$photoId'",
+            )
+
+        val processingStatus = row[Photos.processingStatus]
+
+        if (variant != AssetVariant.ORIGINAL && processingStatus == "processing") {
+            throw ApiException(
+                slug = "processing-not-ready",
+                httpStatus = HttpStatusCode.Locked,
+                title = "Processing Not Ready",
+                detail = "Photo '$photoId' is still being processed",
+            )
+        }
+
+        val relativePath = when (variant) {
+            AssetVariant.THUMBNAIL -> row[Photos.thumbnailPath]
+            AssetVariant.MEDIUM    -> row[Photos.mediumPath]
+            AssetVariant.ORIGINAL  -> row[Photos.originalPath]
+        } ?: throw ApiException(
+            slug = "photo-not-found",
+            httpStatus = HttpStatusCode.NotFound,
+            title = "Photo Not Found",
+            detail = "Asset '${variant.name.lowercase()}' for photo '$photoId' is not available",
+        )
+
+        val path = storage.resolve(relativePath)
+        if (!storage.exists(path)) {
+            throw ApiException(
+                slug = "photo-not-found",
+                httpStatus = HttpStatusCode.NotFound,
+                title = "Photo Not Found",
+                detail = "Asset file for photo '$photoId' was not found on disk",
+            )
+        }
+
+        val contentType = when (variant) {
+            AssetVariant.ORIGINAL  -> row[Photos.mimeType]
+            AssetVariant.THUMBNAIL,
+            AssetVariant.MEDIUM    -> "image/jpeg"
+        }
+
+        PhotoAsset(
+            file = path.toFile(),
+            contentType = contentType,
+            etag = "\"$photoId-${variant.name.lowercase()}\"",
+        )
     }
 
     /**

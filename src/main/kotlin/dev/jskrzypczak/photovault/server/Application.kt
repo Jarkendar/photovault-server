@@ -10,7 +10,10 @@ import dev.jskrzypczak.photovault.server.plugins.configureRouting
 import dev.jskrzypczak.photovault.server.plugins.configureSecurity
 import dev.jskrzypczak.photovault.server.plugins.configureSerialization
 import dev.jskrzypczak.photovault.server.plugins.configureStatusPages
+import dev.jskrzypczak.photovault.server.storage.PhotoAssetStorage
+import dev.jskrzypczak.photovault.server.storage.StorageConfig
 import io.ktor.server.application.Application
+import java.nio.file.Path
 
 /**
  * Main Ktor module. Entry point is [io.ktor.server.netty.EngineMain], which reads
@@ -27,9 +30,11 @@ import io.ktor.server.application.Application
 fun Application.module() {
     val version = environment.config.propertyOrNull("photovault.version")?.getString() ?: "unknown"
     val jwtConfig = JwtConfig.from(environment.config)
+    val storageConfig = StorageConfig.from(environment.config)
     val jwtService = JwtService(jwtConfig)
     val authService = AuthService(jwtService)
-    val photoService = PhotoService()
+    val photoStorage = PhotoAssetStorage(Path.of(storageConfig.root))
+    val photoService = PhotoService(photoStorage)
 
     configureSerialization()
     configureMonitoring()

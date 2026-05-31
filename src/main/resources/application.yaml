@@ -7,6 +7,8 @@ ktor:
 
 photovault:
   version: "1.0.0"
+  storage:
+    root: ${PHOTO_STORAGE_ROOT:./data/photos}
 
 db:
   url: ${DB_URL:jdbc:postgresql://localhost:5432/photovault}

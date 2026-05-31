@@ -60,6 +60,26 @@ are stored in the `refresh_tokens` table and can be revoked individually.
 |---|---|---|
 | `GET /v1/photos` | required | Paginated photo list (cursor-based, newest first) |
 | `GET /v1/photos/{id}` | required | Single photo by id |
+| `GET /v1/photos/{id}/thumbnail` | required | Thumbnail binary (`image/jpeg`) |
+| `GET /v1/photos/{id}/medium` | required | Medium binary (`image/jpeg`) |
+| `GET /v1/photos/{id}/original` | required | Original binary (photo's own MIME type) |
+
+**Binary asset rules:**
+
+- `thumbnail` and `medium` return **`423 Locked`** (`processing-not-ready`) while
+  `processingStatus == "processing"`. Once processing is done they are immutable.
+- `original` is **always available** regardless of processing status.
+- All three binary endpoints return `404 photo-not-found` when the photo doesn't exist or its
+  asset path is not yet set in the database.
+
+**Caching:** binary assets are immutable so they are served with
+`Cache-Control: private, max-age=31536000, immutable`. An `ETag` is set on every response;
+clients can re-request with `If-None-Match` to receive `304 Not Modified`.
+
+**Storage model:** asset files live on the server's filesystem under a configurable root
+(`PHOTO_STORAGE_ROOT`). The database stores only relative paths (e.g. `photo-abc/thumbnail.jpg`);
+the server joins them with the root at serve time. In Docker the root is mounted as a named
+volume (`photo_storage:/data/photos`); for local dev it defaults to `./data/photos`.
 
 **Query parameters for `GET /v1/photos`:**
 
@@ -117,6 +137,7 @@ production (generate with `openssl rand -base64 48`).
 | `JWT_AUDIENCE` | `photovault-client` | JWT `aud` claim |
 | `JWT_ACCESS_TTL_MIN` | `60` | Access token lifetime (minutes) |
 | `JWT_REFRESH_TTL_DAYS` | `30` | Refresh token lifetime (days) |
+| `PHOTO_STORAGE_ROOT` | `./data/photos` | Path to the photo asset directory (set to `/data/photos` in Docker) |
 
 ## Development roadmap
 
@@ -126,7 +147,7 @@ production (generate with `openssl rand -base64 48`).
 | 2 | DB layer: Exposed + PostgreSQL + Hikari + migrations | ✅ done |
 | 3 | Auth: JWT login/refresh/logout, BCrypt, refresh-token store | ✅ done |
 | 4 | Read photos: `GET /v1/photos` (cursor pagination, filters) + `GET /v1/photos/{id}` | ✅ done |
-| 5 | Binary assets: thumbnail / medium / original (+ 423 while processing) | ⬜ |
+| 5 | Binary assets: thumbnail / medium / original (+ 423 while processing) | ✅ done |
 | 6 | Tags / Categories / Labels (full CRUD; labels read-only) | ⬜ |
 | 7 | `PATCH /v1/photos/{id}` — favourites + set-semantics for tag/category/label lists | ⬜ |
 | 8 | Uploads: multipart 202 + async processing pipeline (Thumbnailator) | ⬜ |

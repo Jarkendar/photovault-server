@@ -22,6 +22,9 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
       DB_USER: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
+      PHOTO_STORAGE_ROOT: /data/photos
+    volumes:
+      - photo_storage:/data/photos
     depends_on:
       postgres:
         condition: service_healthy
@@ -34,3 +37,4 @@ services:
 
 volumes:
   postgres_data:
+  photo_storage:

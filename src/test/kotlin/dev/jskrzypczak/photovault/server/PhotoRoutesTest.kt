@@ -14,6 +14,7 @@ import dev.jskrzypczak.photovault.server.db.tables.Tags
 import dev.jskrzypczak.photovault.server.db.tables.Users
 import dev.jskrzypczak.photovault.server.photos.PhotoService
 import dev.jskrzypczak.photovault.server.plugins.configureSecurity
+import dev.jskrzypczak.photovault.server.storage.PhotoAssetStorage
 import dev.jskrzypczak.photovault.server.plugins.configureSerialization
 import dev.jskrzypczak.photovault.server.plugins.configureStatusPages
 import dev.jskrzypczak.photovault.server.routes.authRoutes
@@ -46,6 +47,7 @@ import org.junit.jupiter.api.TestInstance
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
+import java.nio.file.Files
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -103,7 +105,8 @@ class PhotoRoutesTest {
         )
         jwtService = JwtService(jwtConfig)
         authService = AuthService(jwtService)
-        photoService = PhotoService()
+        val storageRoot = Files.createTempDirectory("photovault-test-storage")
+        photoService = PhotoService(PhotoAssetStorage(storageRoot))
 
         insertFixtures()
     }
