@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-Self-hosted Kotlin + Ktor backend for a personal photo library. Implements the REST API defined in the `contract/` git submodule. Intended to run in Docker on a Raspberry Pi; the planned data layer is PostgreSQL + Exposed (not yet added to `build.gradle.kts`).
+Self-hosted Kotlin + Ktor backend for a personal photo library. Implements the REST API defined in the `contract/` git submodule. Intended to run in Docker on a Raspberry Pi. Data layer: PostgreSQL via HikariCP + Exposed ORM — fully wired. Schema is created and seeded at startup by `db/DatabaseInit.kt` (6 color labels + a default `admin` user on first run).
 
 ## Commands
 
@@ -32,6 +32,7 @@ java -jar build/libs/photovault-server.jar
 - **Kotlin 2.3.20** / **JVM 21**
 - **Ktor 3.5.0** (Netty engine, `EngineMain` entry point reading `application.yaml`)
 - **kotlinx.serialization** for all JSON — `camelCase` field names, no custom adapters needed
+- **Exposed ORM** + **HikariCP** (pool size 10, `TRANSACTION_REPEATABLE_READ`) over PostgreSQL
 - **Logback** for logging
 - **JUnit 5** + `ktor-server-test-host` for tests
 
@@ -75,3 +76,49 @@ created → uploading → processing → done
 ```
 
 `photoId` is set on the `UploadDto` only when `status == done`.
+
+## Project structure
+
+Base package: `dev.jskrzypczak.photovault.server` → `src/main/kotlin/dev/jskrzypczak/photovault/server/`
+
+```
+Application.kt          entry point — Application.module(), manual service wiring + plugin install order
+plugins/
+  Routing.kt            central mount: routing { route("/v1") { …all xxxRoutes() } }
+  Security.kt           JWT "auth-jwt" plugin + problem+json challenge
+  Database.kt           HikariCP + Database.connect + initDatabase()
+  StatusPages.kt        exception → RFC 7807 mapping (all errors go here)
+  Serialization.kt      JSON ContentNegotiation
+  Monitoring.kt         CallLogging
+routes/                 HTTP-only Route.xxxRoutes(service) — parse params, call.receive/respond, no logic
+  AuthRoutes / PhotoRoutes / TagRoutes / CategoryRoutes / LabelRoutes / HealthRoutes
+  (UploadRoutes lives in uploads/ slice, not here)
+auth/                   AuthService (DB-backed), JwtService, JwtConfig
+metadata/               TagService, CategoryService, LabelService (CRUD + validation)
+photos/                 PhotoService (cursor pagination, batch metadata fetch), Cursor.kt
+uploads/                vertical slice: UploadRoutes + UploadService (async pipeline) + dto/
+storage/                PhotoAssetStorage (filesystem, path-traversal guard, AssetVariant enum), StorageConfig
+dto/                    @Serializable request/response classes (AuthDtos, PhotoDtos, MetadataDtos, …)
+errors/                 ApiException + respondProblem() helper
+db/
+  DatabaseInit.kt       schema create, idx_photos_cursor index, seed labels + admin user
+  tables/               Exposed Table objects incl. junctions PhotoTags / PhotoCategories / PhotoLabels
+src/main/resources/     application.yaml (port, db.*, jwt.*, photovault.storage.*), logback.xml
+```
+
+## Conventions
+
+- **Routes:** `XxxRoutes.kt` → `fun Route.xxxRoutes(service)`. HTTP layer only — no business logic.
+- **Services:** `XxxService.kt` → `class XxxService(deps)`. All DB access inside Exposed `transaction { }`. **Validation lives in services**, not routes; throws `ApiException("validation-failed", 400)` with a `field → messages` map.
+- **DTOs:** `@Serializable`. Grouped by area (`PhotoDtos.kt`, `MetadataDtos.kt`, `AuthDtos.kt`). Type names end in `Dto`, request bodies end in `Request`.
+- **DB tables:** `db/tables/Xxx.kt`, `object Xxx : Table("snake_case_name")`.
+- **Config:** `XxxConfig.kt` with `companion object { fun from(config: ApplicationConfig) }`.
+- **Errors:** throw `ApiException` anywhere; `StatusPages.kt` centralises mapping to `application/problem+json`.
+- **No DI framework** — services wired by hand in `Application.module()`.
+- **Test seam:** only `PhotoAssetStorage` is injected (tests use temp dir). No in-memory fakes elsewhere; tests hit a real DB via `testApplication`.
+
+## Tests
+
+All tests in `src/test/kotlin/dev/jskrzypczak/photovault/server/` — flat package, no sub-dirs. One file per concern.
+
+Photo tests are split across three files: `PhotoRoutesTest` (list/get), `PhotoPatchDeleteRoutesTest`, `PhotoAssetRoutesTest` — check all three when touching photo-related code.
