@@ -13,6 +13,8 @@ import dev.jskrzypczak.photovault.server.routes.photoRoutes
 import dev.jskrzypczak.photovault.server.routes.tagRoutes
 import dev.jskrzypczak.photovault.server.uploads.UploadService
 import dev.jskrzypczak.photovault.server.uploads.uploadRoutes
+import dev.jskrzypczak.photovault.server.users.UserService
+import dev.jskrzypczak.photovault.server.routes.userRoutes
 import io.ktor.server.application.Application
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
@@ -26,6 +28,7 @@ fun Application.configureRouting(
     categoryService: CategoryService,
     labelService: LabelService,
     uploadService: UploadService,
+    userService: UserService,
 ) {
     routing {
         route("/v1") {
@@ -36,6 +39,7 @@ fun Application.configureRouting(
             categoryRoutes(categoryService)
             labelRoutes(labelService)
             uploadRoutes(uploadService)
+            userRoutes(userService)
         }
     }
 }
