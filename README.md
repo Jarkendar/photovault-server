@@ -23,7 +23,8 @@ The server is a single-module Ktor application using `EngineMain` as the entry p
 | Photos | `photos/` | `PhotoService` (list + single-photo queries), `Cursor` (opaque pagination cursor encode/decode) |
 | Metadata | `metadata/` | `TagService`, `CategoryService`, `LabelService` (CRUD for metadata resources) |
 | Uploads | `uploads/` | `UploadService` (multipart accept → async decode/resize/persist), `UploadRoutes` |
-| Routes | `routes/` | One file per resource (`healthRoutes`, `authRoutes`, `photoRoutes`, `tagRoutes`, …) |
+| Users | `users/` | `UserService` (read-only list of all accounts, ordered by `createdAt ASC`) |
+| Routes | `routes/` | One file per resource (`healthRoutes`, `authRoutes`, `photoRoutes`, `tagRoutes`, `userRoutes`, …) |
 | DTOs | `dto/` | `@Serializable` classes mirroring the contract |
 | Errors | `errors/` | `ApiException`, `ProblemDetails`, `respondProblem` |
 | DB tables | `db/tables/` | Exposed `Table` objects; schema created on startup via `initDatabase()` |
@@ -146,11 +147,21 @@ decodes the image with `javax.imageio.ImageIO`, generates thumbnail (≤ 320 px)
 writes all three variants to disk, inserts the `photo-*` row, and transitions the upload to
 `done` with `photoId` set. Any decode or I/O failure transitions the upload to `failed`.
 
-**Supported formats:** `image/jpeg`, `image/png`. HEIC support is planned for M9.
+**Supported formats:** `image/jpeg`, `image/png`.
 
 The optional `metadata` form part accepts a JSON string
 `{"tagIds":[],"categoryIds":[],"labelIds":[]}` to pre-link the resulting photo to existing
 tags, categories, and labels in one step.
+
+### Users
+
+| Endpoint | Auth | Description |
+|---|---|---|
+| `GET /v1/users` | required | List all user accounts ordered by `createdAt ASC` (admin first) |
+
+Accounts are created administratively only — there is no self-registration endpoint.
+Each item carries `id`, `username`, `displayName`, and `createdAt` (ISO-8601).
+`POST`, `PATCH`, and `DELETE` on `/v1/users` are not registered; Ktor returns `405 Method Not Allowed` automatically.
 
 ## Running
 
@@ -205,7 +216,7 @@ production (generate with `openssl rand -base64 48`).
 | 6 | Tags / Categories / Labels (full CRUD; labels read-only) | ✅ done |
 | 7 | `PATCH /v1/photos/{id}` + `DELETE /v1/photos/{id}` — favourites + set-semantics for tag/category/label lists; delete photo + assets | ✅ done |
 | 8 | Uploads: multipart 202 + async processing pipeline (Thumbnailator) | ✅ done |
-| 9 | Hardening: full error-slug coverage, size/MIME limits, `validation-failed` map | ⬜ |
+| 9 | `GET /v1/users` — read-only user list | ✅ done |
 
 ## License
 
