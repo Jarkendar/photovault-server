@@ -32,6 +32,7 @@ fun initDatabase() {
         @Suppress("DEPRECATION")
         SchemaUtils.createMissingTablesAndColumns(*allTables)
         exec("CREATE INDEX IF NOT EXISTS idx_photos_cursor ON photos (uploaded_at DESC, id DESC)")
+        exec("CREATE INDEX IF NOT EXISTS idx_photos_effective_date ON photos (COALESCE(captured_at, uploaded_at))")
         log.info("Database schema up to date")
         seedLabels()
         seedAdminUser()

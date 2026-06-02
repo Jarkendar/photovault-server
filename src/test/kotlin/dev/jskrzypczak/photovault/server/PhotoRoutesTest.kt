@@ -485,6 +485,124 @@ class PhotoRoutesTest {
         assertTrue(items.any { it.jsonObject["id"]?.jsonPrimitive?.content == photo2Id })
     }
 
+    @Test
+    fun `GET photos with matchMode=any returns photos with at least one of the listed tags`() = withApp {
+        val token = loginToken()
+        // tag1 is on photo2+photo3, tag2 is on photo2 only — OR gives photo2+photo3
+        val r = client.get("/v1/photos?tagIds=$tag1Id,$tag2Id&matchMode=any") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+        }
+        val items = lenient.parseToJsonElement(r.bodyAsText()).jsonObject["items"]!!.jsonArray
+        val ids = items.map { it.jsonObject["id"]?.jsonPrimitive?.content }.toSet()
+        assertEquals(2, ids.size)
+        assertTrue(photo2Id in ids)
+        assertTrue(photo3Id in ids)
+    }
+
+    @Test
+    fun `GET photos with matchMode=any single tag is equivalent to AND`() = withApp {
+        val token = loginToken()
+        val rAny = client.get("/v1/photos?tagIds=$tag1Id&matchMode=any") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+        }
+        val rAll = client.get("/v1/photos?tagIds=$tag1Id&matchMode=all") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+        }
+        val idsAny = lenient.parseToJsonElement(rAny.bodyAsText())
+            .jsonObject["items"]!!.jsonArray.map { it.jsonObject["id"]?.jsonPrimitive?.content }.toSet()
+        val idsAll = lenient.parseToJsonElement(rAll.bodyAsText())
+            .jsonObject["items"]!!.jsonArray.map { it.jsonObject["id"]?.jsonPrimitive?.content }.toSet()
+        assertEquals(idsAll, idsAny)
+    }
+
+    @Test
+    fun `GET photos with invalid matchMode returns 400 validation-failed`() = withApp {
+        val token = loginToken()
+        val r = client.get("/v1/photos?matchMode=bogus") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+        }
+        assertEquals(HttpStatusCode.BadRequest, r.status)
+        val body = lenient.parseToJsonElement(r.bodyAsText()).jsonObject
+        assertTrue(body["type"]?.jsonPrimitive?.content?.endsWith("validation-failed") == true)
+        assertTrue(body["errors"]?.jsonObject?.containsKey("matchMode") == true)
+    }
+
+    @Test
+    fun `GET photos with dateFrom excludes photos before the bound`() = withApp {
+        val token = loginToken()
+        // photo1 uploadedAt = 2026-05-01T12:00:00Z; photo3 = 2026-05-01T12:02:00Z
+        // dateFrom just after photo1 → only photo2 and photo3
+        val r = client.get("/v1/photos?dateFrom=2026-05-01T12:00:30Z") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+        }
+        val items = lenient.parseToJsonElement(r.bodyAsText()).jsonObject["items"]!!.jsonArray
+        val ids = items.map { it.jsonObject["id"]?.jsonPrimitive?.content }.toSet()
+        assertFalse(photo1Id in ids)
+        assertTrue(photo2Id in ids)
+        assertTrue(photo3Id in ids)
+    }
+
+    @Test
+    fun `GET photos with dateTo excludes photos after the bound`() = withApp {
+        val token = loginToken()
+        // dateTo just before photo3 (12:02:00) → only photo1 and photo2
+        val r = client.get("/v1/photos?dateTo=2026-05-01T12:01:30Z") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+        }
+        val items = lenient.parseToJsonElement(r.bodyAsText()).jsonObject["items"]!!.jsonArray
+        val ids = items.map { it.jsonObject["id"]?.jsonPrimitive?.content }.toSet()
+        assertTrue(photo1Id in ids)
+        assertTrue(photo2Id in ids)
+        assertFalse(photo3Id in ids)
+    }
+
+    @Test
+    fun `GET photos with dateFrom and dateTo returns only photos within the range`() = withApp {
+        val token = loginToken()
+        // Tight range that covers only photo2 (12:01:00)
+        val r = client.get("/v1/photos?dateFrom=2026-05-01T12:00:30Z&dateTo=2026-05-01T12:01:30Z") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+        }
+        val items = lenient.parseToJsonElement(r.bodyAsText()).jsonObject["items"]!!.jsonArray
+        assertEquals(1, items.size)
+        assertEquals(photo2Id, items.first().jsonObject["id"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `GET photos with date range matching no photos returns empty list`() = withApp {
+        val token = loginToken()
+        // Far-future range
+        val r = client.get("/v1/photos?dateFrom=2099-01-01T00:00:00Z") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+        }
+        val items = lenient.parseToJsonElement(r.bodyAsText()).jsonObject["items"]!!.jsonArray
+        assertTrue(items.isEmpty())
+    }
+
+    @Test
+    fun `GET photos with invalid dateFrom returns 400 validation-failed`() = withApp {
+        val token = loginToken()
+        val r = client.get("/v1/photos?dateFrom=not-a-date") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+        }
+        assertEquals(HttpStatusCode.BadRequest, r.status)
+        val body = lenient.parseToJsonElement(r.bodyAsText()).jsonObject
+        assertTrue(body["type"]?.jsonPrimitive?.content?.endsWith("validation-failed") == true)
+        assertTrue(body["errors"]?.jsonObject?.containsKey("dateFrom") == true)
+    }
+
+    @Test
+    fun `GET photos with invalid dateTo returns 400 validation-failed`() = withApp {
+        val token = loginToken()
+        val r = client.get("/v1/photos?dateTo=2026-05-XX") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+        }
+        assertEquals(HttpStatusCode.BadRequest, r.status)
+        val body = lenient.parseToJsonElement(r.bodyAsText()).jsonObject
+        assertTrue(body["type"]?.jsonPrimitive?.content?.endsWith("validation-failed") == true)
+        assertTrue(body["errors"]?.jsonObject?.containsKey("dateTo") == true)
+    }
+
     // ── GET /v1/photos/{id} ───────────────────────────────────────────────────
 
     @Test

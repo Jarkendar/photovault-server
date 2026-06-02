@@ -71,6 +71,14 @@ data class PhotoPage(
 )
 
 /**
+ * Response body for `GET /v1/photos/count`.
+ *
+ * [count] is the number of photos matching the applied filter set.
+ */
+@Serializable
+data class PhotoCountDto(val count: Long)
+
+/**
  * Request body for `PATCH /v1/photos/{id}`.
  *
  * All fields are optional. Absent fields (null) mean "no change". A field

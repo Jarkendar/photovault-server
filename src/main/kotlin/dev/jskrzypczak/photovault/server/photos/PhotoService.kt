@@ -21,14 +21,16 @@ import dev.jskrzypczak.photovault.server.storage.AssetVariant
 import dev.jskrzypczak.photovault.server.storage.PhotoAssetStorage
 import io.ktor.http.HttpStatusCode
 import org.jetbrains.exposed.sql.AbstractQuery
+import org.jetbrains.exposed.sql.Coalesce
 import org.jetbrains.exposed.sql.Column
 import org.jetbrains.exposed.sql.InSubQueryOp
 import org.jetbrains.exposed.sql.Op
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.greater
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.greaterEq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.like
 import org.jetbrains.exposed.sql.Table
 import org.jetbrains.exposed.sql.and
@@ -45,14 +47,17 @@ import org.slf4j.LoggerFactory
 import java.time.Instant
 
 /**
- * Query parameters for [PhotoService.listPhotos].
+ * Query parameters for [PhotoService.listPhotos] and [PhotoService.countPhotos].
  *
- * [cursor] — opaque pagination cursor (null on first page).
- * [limit]  — page size, clamped to [1, 100].
- * [q]      — free-text search across photo name, tag names, category names.
- * [tagIds], [categoryIds], [labelIds] — AND filters (photo must have all listed ids).
+ * [cursor]      — opaque pagination cursor (null on first page). Ignored by [countPhotos].
+ * [limit]       — page size, clamped to [1, 100]. Ignored by [countPhotos].
+ * [q]           — free-text search across photo name, tag names, category names.
+ * [tagIds], [categoryIds], [labelIds] — id filters; combination logic controlled by [matchMode].
  * [favoritesOnly] — when true, return only favourited photos.
- * [uploadedBy] — filter by uploader user id; already resolved from "me" at route level.
+ * [uploadedBy]  — filter by uploader user id; already resolved from "me" at route level.
+ * [matchMode]   — raw query-param string validated in the service. `null`/`"all"` = AND, `"any"` = OR.
+ * [dateFrom]    — ISO-8601 date-time lower bound on `COALESCE(capturedAt, uploadedAt)`.
+ * [dateTo]      — ISO-8601 date-time upper bound on `COALESCE(capturedAt, uploadedAt)`.
  */
 data class PhotoQuery(
     val cursor: String? = null,
@@ -63,7 +68,13 @@ data class PhotoQuery(
     val labelIds: List<String> = emptyList(),
     val favoritesOnly: Boolean = false,
     val uploadedBy: String? = null,
+    val matchMode: String? = null,
+    val dateFrom: String? = null,
+    val dateTo: String? = null,
 )
+
+/** Combination logic for multi-value id filters ([PhotoQuery.tagIds], [PhotoQuery.categoryIds], [PhotoQuery.labelIds]). */
+enum class MatchMode { ALL, ANY }
 
 /**
  * Holds a resolved binary photo asset ready to be streamed to the client.
@@ -315,31 +326,7 @@ class PhotoService(private val storage: PhotoAssetStorage) {
         val limit = query.limit.coerceIn(1, 100)
 
         // ── build WHERE predicate ───────────────────────────────────────────────
-        var predicate: Op<Boolean> = Op.TRUE
-
-        if (query.favoritesOnly) {
-            predicate = predicate and (Photos.isFavorite eq true)
-        }
-
-        if (query.uploadedBy != null) {
-            predicate = predicate and (Photos.uploadedBy eq query.uploadedBy)
-        }
-
-        if (query.tagIds.isNotEmpty()) {
-            predicate = predicate and andSubquery(PhotoTags, PhotoTags.photoId, PhotoTags.tagId, query.tagIds)
-        }
-
-        if (query.categoryIds.isNotEmpty()) {
-            predicate = predicate and andSubquery(PhotoCategories, PhotoCategories.photoId, PhotoCategories.categoryId, query.categoryIds)
-        }
-
-        if (query.labelIds.isNotEmpty()) {
-            predicate = predicate and andSubquery(PhotoLabels, PhotoLabels.photoId, PhotoLabels.labelId, query.labelIds)
-        }
-
-        if (!query.q.isNullOrBlank()) {
-            predicate = predicate and buildFreeTextPredicate(query.q.trim())
-        }
+        var predicate = buildFilterPredicate(query)
 
         // ── cursor predicate ──────────────────────────────────────────────────
         if (query.cursor != null) {
@@ -395,6 +382,16 @@ class PhotoService(private val storage: PhotoAssetStorage) {
         PhotoPage(items = items, nextCursor = nextCursor, hasMore = hasMore)
     }
 
+    /**
+     * Returns the number of photos matching [query].
+     *
+     * Uses the same filter predicate as [listPhotos] but without any pagination cursor or limit.
+     */
+    fun countPhotos(query: PhotoQuery): Long = transaction {
+        val predicate = buildFilterPredicate(query)
+        Photos.selectAll().where { predicate }.count()
+    }
+
     // ─── private helpers ──────────────────────────────────────────────────────
 
     /**
@@ -421,26 +418,108 @@ class PhotoService(private val storage: PhotoAssetStorage) {
     }
 
     /**
-     * Builds a sub-query predicate that keeps only photo ids that have **all** listed [ids]
-     * in the given junction [table] via [fkCol].
+     * Parses the raw [matchMode] string into a [MatchMode] enum.
      *
-     * Uses `GROUP BY photoId HAVING COUNT(*) = ids.size`. The junction PK `(photoId, fkId)`
-     * guarantees each pair appears at most once, so the count equals the number of matched items.
-     *
-     * Uses [InSubQueryOp] directly to avoid needing the ISqlExpressionBuilder receiver context.
+     * `null` and `"all"` both map to [MatchMode.ALL] (the default). Any other value throws
+     * `validation-failed` 400 with a field-level error on `matchMode`.
      */
-    private fun andSubquery(
+    private fun parseMatchMode(raw: String?): MatchMode = when (raw?.lowercase()) {
+        null, "all" -> MatchMode.ALL
+        "any"       -> MatchMode.ANY
+        else -> throw ApiException(
+            slug = "validation-failed",
+            httpStatus = HttpStatusCode.BadRequest,
+            title = "Validation Failed",
+            detail = "Invalid matchMode value",
+            errors = mapOf("matchMode" to listOf("must be one of: all, any")),
+        )
+    }
+
+    /**
+     * Parses [raw] as an ISO-8601 date-time instant, or returns `null` when [raw] is `null`.
+     *
+     * Throws `validation-failed` 400 with a field-level error on [field] for malformed input.
+     */
+    private fun parseInstant(raw: String?, field: String): Instant? {
+        raw ?: return null
+        return try {
+            Instant.parse(raw)
+        } catch (e: Exception) {
+            throw ApiException(
+                slug = "validation-failed",
+                httpStatus = HttpStatusCode.BadRequest,
+                title = "Validation Failed",
+                detail = "Invalid date-time for '$field'",
+                errors = mapOf(field to listOf("must be an ISO-8601 date-time")),
+            )
+        }
+    }
+
+    /**
+     * Builds a sub-query predicate that keeps only photo ids matching the listed [ids]
+     * in the junction [table] via [fkCol], using the given [mode].
+     *
+     * [MatchMode.ALL]: `GROUP BY photoId HAVING COUNT(*) = ids.size` — photo must have all ids.
+     * [MatchMode.ANY]: plain `WHERE fkId IN ids` — photo must have at least one id.
+     *
+     * The junction PK `(photoId, fkId)` guarantees no duplicate pairs, so the HAVING count
+     * equals the number of distinct matched ids. Uses [InSubQueryOp] directly.
+     */
+    private fun relationSubquery(
         table: Table,
         photoIdCol: Column<String>,
         fkCol: Column<String>,
         ids: List<String>,
+        mode: MatchMode,
     ): Op<Boolean> {
-        val sub = table
-            .select(photoIdCol)
-            .where { fkCol inList ids }
-            .groupBy(photoIdCol)
-            .having { fkCol.count() eq ids.size.toLong() }
+        val base = table.select(photoIdCol).where { fkCol inList ids }
+        val sub = if (mode == MatchMode.ALL)
+            base.groupBy(photoIdCol).having { fkCol.count() eq ids.size.toLong() }
+        else base
         return InSubQueryOp(Photos.id, sub)
+    }
+
+    /**
+     * Builds the shared WHERE predicate used by both [listPhotos] and [countPhotos].
+     *
+     * Covers: favoritesOnly, uploadedBy, id-filters with [MatchMode], free-text [q],
+     * and date-range ([PhotoQuery.dateFrom] / [PhotoQuery.dateTo]) against
+     * `COALESCE(capturedAt, uploadedAt)`. Does NOT include the cursor clause.
+     */
+    private fun buildFilterPredicate(query: PhotoQuery): Op<Boolean> {
+        val mode = parseMatchMode(query.matchMode)
+        var p: Op<Boolean> = Op.TRUE
+
+        if (query.favoritesOnly) {
+            p = p and (Photos.isFavorite eq true)
+        }
+
+        if (query.uploadedBy != null) {
+            p = p and (Photos.uploadedBy eq query.uploadedBy)
+        }
+
+        if (query.tagIds.isNotEmpty()) {
+            p = p and relationSubquery(PhotoTags, PhotoTags.photoId, PhotoTags.tagId, query.tagIds, mode)
+        }
+
+        if (query.categoryIds.isNotEmpty()) {
+            p = p and relationSubquery(PhotoCategories, PhotoCategories.photoId, PhotoCategories.categoryId, query.categoryIds, mode)
+        }
+
+        if (query.labelIds.isNotEmpty()) {
+            p = p and relationSubquery(PhotoLabels, PhotoLabels.photoId, PhotoLabels.labelId, query.labelIds, mode)
+        }
+
+        if (!query.q.isNullOrBlank()) {
+            p = p and buildFreeTextPredicate(query.q.trim())
+        }
+
+        // Date-range filter: compare COALESCE(capturedAt, uploadedAt) against the bounds.
+        val effDate = Coalesce(Photos.capturedAt, Photos.uploadedAt)
+        parseInstant(query.dateFrom, "dateFrom")?.let { p = p and (effDate greaterEq it) }
+        parseInstant(query.dateTo,   "dateTo"  )?.let { p = p and (effDate lessEq it) }
+
+        return p
     }
 
     /**

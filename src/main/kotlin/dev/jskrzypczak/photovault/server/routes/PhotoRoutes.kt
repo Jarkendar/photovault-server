@@ -1,5 +1,6 @@
 package dev.jskrzypczak.photovault.server.routes
 
+import dev.jskrzypczak.photovault.server.dto.PhotoCountDto
 import dev.jskrzypczak.photovault.server.dto.UpdatePhotoRequest
 import dev.jskrzypczak.photovault.server.errors.ApiException
 import dev.jskrzypczak.photovault.server.photos.PhotoQuery
@@ -28,6 +29,7 @@ import io.ktor.server.routing.route
  *
  * All endpoints require the "auth-jwt" principal:
  *   GET    /photos               — paginated photo list with optional filters
+ *   GET    /photos/count         — count of photos matching the same filters (no pagination)
  *   GET    /photos/{id}          — single photo by id
  *   PATCH  /photos/{id}          — update isFavorite / tag / category / label lists
  *   DELETE /photos/{id}          — delete photo and asset files
@@ -38,6 +40,38 @@ import io.ktor.server.routing.route
 fun Route.photoRoutes(photoService: PhotoService) {
     authenticate("auth-jwt") {
         route("/photos") {
+
+            // ── shared param-parsing helper ────────────────────────────────────
+            // Builds a PhotoQuery from common filter params (q, tagIds, categoryIds, labelIds,
+            // favoritesOnly, uploadedBy, matchMode, dateFrom, dateTo). Does NOT set cursor/limit
+            // — list route appends those; count route leaves them at their defaults.
+            fun ApplicationCall.buildPhotoFilters(userId: String): PhotoQuery {
+                fun csvParam(name: String): List<String> =
+                    parameters[name]
+                        ?.split(",")
+                        ?.map { it.trim() }
+                        ?.filter { it.isNotEmpty() }
+                        ?: emptyList()
+
+                val uploadedByRaw = parameters["uploadedBy"]
+                val uploadedBy = when {
+                    uploadedByRaw == null -> null
+                    uploadedByRaw == "me" -> userId
+                    else -> uploadedByRaw
+                }
+
+                return PhotoQuery(
+                    q = parameters["q"],
+                    tagIds = csvParam("tagIds"),
+                    categoryIds = csvParam("categoryIds"),
+                    labelIds = csvParam("labelIds"),
+                    favoritesOnly = parameters["favoritesOnly"]?.lowercase() == "true",
+                    uploadedBy = uploadedBy,
+                    matchMode = parameters["matchMode"],
+                    dateFrom = parameters["dateFrom"],
+                    dateTo = parameters["dateTo"],
+                )
+            }
 
             get {
                 val userId = call.principal<JWTPrincipal>()!!.payload.subject
@@ -52,35 +86,20 @@ fun Route.photoRoutes(photoService: PhotoService) {
                     )
                 } ?: 30
 
-                // ── csv helper ────────────────────────────────────────────────
-                fun csvParam(name: String): List<String> =
-                    call.parameters[name]
-                        ?.split(",")
-                        ?.map { it.trim() }
-                        ?.filter { it.isNotEmpty() }
-                        ?: emptyList()
-
-                // ── uploadedBy — resolve "me" to the authenticated user id ───
-                val uploadedByRaw = call.parameters["uploadedBy"]
-                val uploadedBy = when {
-                    uploadedByRaw == null -> null
-                    uploadedByRaw == "me" -> userId
-                    else -> uploadedByRaw
-                }
-
-                val query = PhotoQuery(
+                val query = call.buildPhotoFilters(userId).copy(
                     cursor = call.parameters["cursor"],
                     limit = limit,
-                    q = call.parameters["q"],
-                    tagIds = csvParam("tagIds"),
-                    categoryIds = csvParam("categoryIds"),
-                    labelIds = csvParam("labelIds"),
-                    favoritesOnly = call.parameters["favoritesOnly"]?.lowercase() == "true",
-                    uploadedBy = uploadedBy,
                 )
 
                 val page = photoService.listPhotos(query)
                 call.respond(HttpStatusCode.OK, page)
+            }
+
+            get("/count") {
+                val userId = call.principal<JWTPrincipal>()!!.payload.subject
+                val query = call.buildPhotoFilters(userId)
+                val count = photoService.countPhotos(query)
+                call.respond(HttpStatusCode.OK, PhotoCountDto(count))
             }
 
             get("/{id}") {
