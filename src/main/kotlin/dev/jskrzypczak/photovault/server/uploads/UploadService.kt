@@ -35,11 +35,20 @@ private const val STATUS_DONE = "done"
 private const val STATUS_FAILED = "failed"
 private const val STATUS_CANCELLED = "cancelled"
 
+/** Photo processing status set after a successful upload. The categoriser will advance it to `ready`. */
+private const val STATUS_PHOTO_PENDING_CATEGORIZATION = "pending_categorization"
+
 private val CANCELLABLE_STATUSES = setOf("created", "uploading", STATUS_PROCESSING)
 private val ALLOWED_MIME_TYPES = setOf("image/jpeg", "image/png")
 
 private const val THUMBNAIL_MAX_PX = 320
 private const val MEDIUM_MAX_PX = 1280
+
+// ── Processing progress milestones ────────────────────────────────────────────
+private const val PROGRESS_DECODED   = 0.2
+private const val PROGRESS_ORIGINAL  = 0.5
+private const val PROGRESS_THUMBNAIL = 0.75
+private const val PROGRESS_MEDIUM    = 0.9
 
 /**
  * Domain service for the upload lifecycle: create, poll, list, cancel, and async processing.
@@ -90,7 +99,7 @@ class UploadService(private val storage: PhotoAssetStorage) {
                 it[Uploads.sizeBytes] = sizeBytes
                 it[uploadedBytes] = sizeBytes
                 it[status] = STATUS_PROCESSING
-                it[progress] = 0.5
+                it[progress] = 0.0
                 it[createdAt] = now
                 it[owner] = ownerId
             }
@@ -106,7 +115,7 @@ class UploadService(private val storage: PhotoAssetStorage) {
             sizeBytes = sizeBytes,
             uploadedBytes = sizeBytes,
             status = STATUS_PROCESSING,
-            progress = 0.5,
+            progress = 0.0,
             createdAt = now.toString(),
         )
     }
@@ -211,20 +220,26 @@ class UploadService(private val storage: PhotoAssetStorage) {
                 ?: throw IllegalStateException(
                     "Failed to decode image — data is corrupt or the format is not supported by this server"
                 )
+            updateProgress(uploadId, PROGRESS_DECODED)
 
             val ext = if (contentType == "image/png") "png" else "jpg"
-            val originalPath   = "$photoId/original.$ext"
-            val thumbnailPath  = "$photoId/thumbnail.jpg"
-            val mediumPath     = "$photoId/medium.jpg"
+            val originalPath  = "$photoId/original.$ext"
+            val thumbnailPath = "$photoId/thumbnail.jpg"
+            val mediumPath    = "$photoId/medium.jpg"
 
             storage.write(originalPath, bytes)
+            updateProgress(uploadId, PROGRESS_ORIGINAL)
+
             storage.write(thumbnailPath, resizeToJpeg(bytes, THUMBNAIL_MAX_PX))
-            storage.write(mediumPath,    resizeToJpeg(bytes, MEDIUM_MAX_PX))
+            updateProgress(uploadId, PROGRESS_THUMBNAIL)
+
+            storage.write(mediumPath, resizeToJpeg(bytes, MEDIUM_MAX_PX))
+            updateProgress(uploadId, PROGRESS_MEDIUM)
 
             val now = Instant.now()
 
             transaction {
-                // Re-check before writing to DB: a cancel might have arrived during asset IO
+                // Re-check before writing to DB: a cancel might have arrived during asset IO or ramp
                 val statusNow = Uploads.selectAll()
                     .where { Uploads.id eq uploadId }
                     .firstOrNull()?.get(Uploads.status)
@@ -243,7 +258,7 @@ class UploadService(private val storage: PhotoAssetStorage) {
                     it[height] = image.height
                     it[uploadedAt] = now
                     it[uploadedBy] = ownerId
-                    it[processingStatus] = "done"
+                    it[processingStatus] = STATUS_PHOTO_PENDING_CATEGORIZATION
                     it[Photos.originalPath] = originalPath
                     it[Photos.thumbnailPath] = thumbnailPath
                     it[Photos.mediumPath] = mediumPath
@@ -287,6 +302,10 @@ class UploadService(private val storage: PhotoAssetStorage) {
     }
 
     // ─── helpers ─────────────────────────────────────────────────────────────
+
+    private fun updateProgress(uploadId: String, value: Double) = transaction {
+        Uploads.update({ Uploads.id eq uploadId }) { it[progress] = value }
+    }
 
     /**
      * Resizes [input] to fit within a [maxPx] × [maxPx] bounding box, keeping aspect ratio,

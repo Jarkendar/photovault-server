@@ -1,6 +1,7 @@
 package dev.jskrzypczak.photovault.server
 
 import dev.jskrzypczak.photovault.server.db.initDatabase
+import dev.jskrzypczak.photovault.server.db.tables.Photos
 import dev.jskrzypczak.photovault.server.db.tables.Uploads
 import dev.jskrzypczak.photovault.server.storage.PhotoAssetStorage
 import dev.jskrzypczak.photovault.server.uploads.UploadService
@@ -95,12 +96,19 @@ class UploadServiceTest {
             jpeg, UploadMetadata(), ownerId)
 
         assertEquals("processing", dto.status)
+        assertEquals(0.0, dto.progress)
         waitForStatus(dto.id, "done")
 
         val photoId = transaction {
             Uploads.selectAll().where { Uploads.id eq dto.id }.first()[Uploads.photoId]
         }
         assertNotNull(photoId)
+
+        val photoStatus = transaction {
+            Photos.selectAll().where { Photos.id eq photoId!! }.first()[Photos.processingStatus]
+        }
+        assertEquals("pending_categorization", photoStatus,
+            "Photo should be in pending_categorization after a successful upload")
 
         val thumb = ImageIO.read(storageRoot.resolve("$photoId/thumbnail.jpg").toFile())
         assertNotNull(thumb, "thumbnail.jpg must exist")

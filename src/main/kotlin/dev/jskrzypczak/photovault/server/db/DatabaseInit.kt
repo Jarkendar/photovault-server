@@ -33,6 +33,9 @@ fun initDatabase() {
         SchemaUtils.createMissingTablesAndColumns(*allTables)
         exec("CREATE INDEX IF NOT EXISTS idx_photos_cursor ON photos (uploaded_at DESC, id DESC)")
         exec("CREATE INDEX IF NOT EXISTS idx_photos_effective_date ON photos (COALESCE(captured_at, uploaded_at))")
+        // Widen processing_status to accommodate "pending_categorization" (22 chars).
+        // Safe to run repeatedly — PostgreSQL allows widening a VARCHAR without data loss.
+        exec("ALTER TABLE photos ALTER COLUMN processing_status TYPE VARCHAR(32)")
         log.info("Database schema up to date")
         seedLabels()
         seedAdminUser()

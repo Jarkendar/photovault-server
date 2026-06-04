@@ -71,6 +71,8 @@ data class PhotoQuery(
     val matchMode: String? = null,
     val dateFrom: String? = null,
     val dateTo: String? = null,
+    /** Filter by exact `processingStatus` value, e.g. `pending_categorization`. */
+    val processingStatus: String? = null,
 )
 
 /** Combination logic for multi-value id filters ([PhotoQuery.tagIds], [PhotoQuery.categoryIds], [PhotoQuery.labelIds]). */
@@ -518,6 +520,10 @@ class PhotoService(private val storage: PhotoAssetStorage) {
         val effDate = Coalesce(Photos.capturedAt, Photos.uploadedAt)
         parseInstant(query.dateFrom, "dateFrom")?.let { p = p and (effDate greaterEq it) }
         parseInstant(query.dateTo,   "dateTo"  )?.let { p = p and (effDate lessEq it) }
+
+        if (query.processingStatus != null) {
+            p = p and (Photos.processingStatus eq query.processingStatus)
+        }
 
         return p
     }

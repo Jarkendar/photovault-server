@@ -19,7 +19,7 @@ object Photos : Table("photos") {
     val placeName = varchar("place_name", 500).nullable()
     val uploadedBy = varchar("uploaded_by", 64).references(Users.id, onDelete = ReferenceOption.RESTRICT)
     val isFavorite = bool("is_favorite").default(false)
-    val processingStatus = varchar("processing_status", 20)
+    val processingStatus = varchar("processing_status", 32)
     val originalPath = varchar("original_path", 1024).nullable()
     val mediumPath = varchar("medium_path", 1024).nullable()
     val thumbnailPath = varchar("thumbnail_path", 1024).nullable()

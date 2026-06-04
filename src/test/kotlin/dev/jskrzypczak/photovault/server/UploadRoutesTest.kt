@@ -345,6 +345,58 @@ class UploadRoutesTest {
         assertTrue(!processingList.contains(uploadId), "processing filter must exclude a done upload")
     }
 
+    @Test
+    fun `uploaded photo lands in pending_categorization and is visible via processingStatus filter`() = withApp {
+        val resp = client.submitFormWithBinaryData(
+            url = "/v1/uploads",
+            formData = formData {
+                append("file", makeJpegBytes(), Headers.build {
+                    append(HttpHeaders.ContentType, "image/jpeg")
+                    append(HttpHeaders.ContentDisposition, "filename=\"pending.jpg\"")
+                })
+            },
+        ) {
+            header(HttpHeaders.Authorization, "Bearer ${token()}")
+        }
+        val uploadId = lenient.parseToJsonElement(resp.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+        assertEquals("done", pollUntilTerminal(uploadId))
+
+        val photoId = lenient.parseToJsonElement(
+            client.get("/v1/uploads/$uploadId") {
+                header(HttpHeaders.Authorization, "Bearer ${token()}")
+            }.bodyAsText()
+        ).jsonObject["photoId"]!!.jsonPrimitive.content
+
+        // The photo DTO must report pending_categorization
+        val photoBody = lenient.parseToJsonElement(
+            client.get("/v1/photos/$photoId") {
+                header(HttpHeaders.Authorization, "Bearer ${token()}")
+            }.bodyAsText()
+        ).jsonObject
+        assertEquals("pending_categorization", photoBody["processingStatus"]?.jsonPrimitive?.content,
+            "Photo should be in pending_categorization right after upload")
+
+        // GET /v1/photos?processingStatus=pending_categorization must include this photo
+        val filterList = lenient.parseToJsonElement(
+            client.get("/v1/photos?processingStatus=pending_categorization") {
+                header(HttpHeaders.Authorization, "Bearer ${token()}")
+            }.bodyAsText()
+        ).jsonObject
+        val filteredIds = filterList["items"]!!.jsonArray
+            .map { it.jsonObject["id"]!!.jsonPrimitive.content }
+        assertTrue(photoId in filteredIds,
+            "pending_categorization filter should include the newly uploaded photo")
+
+        // GET /v1/photos/count?processingStatus=pending_categorization must be >= 1
+        val countBody = lenient.parseToJsonElement(
+            client.get("/v1/photos/count?processingStatus=pending_categorization") {
+                header(HttpHeaders.Authorization, "Bearer ${token()}")
+            }.bodyAsText()
+        ).jsonObject
+        val count = countBody["count"]!!.jsonPrimitive.content.toLong()
+        assertTrue(count >= 1L, "Count of pending_categorization photos should be at least 1")
+    }
+
     // ── error cases ────────────────────────────────────────────────────────────
 
     @Test
@@ -401,7 +453,7 @@ class UploadRoutesTest {
                 it[sizeBytes] = 1000L
                 it[uploadedBytes] = 1000L
                 it[status] = "processing"
-                it[progress] = 0.5
+                it[progress] = 0.0
                 it[createdAt] = Instant.now()
                 it[owner] = adminUserId
             }
@@ -446,7 +498,7 @@ class UploadRoutesTest {
                 it[sizeBytes] = 1000L
                 it[uploadedBytes] = 1000L
                 it[status] = "processing"
-                it[progress] = 0.5
+                it[progress] = 0.0
                 it[createdAt] = Instant.now()
                 it[owner] = adminUserId
             }

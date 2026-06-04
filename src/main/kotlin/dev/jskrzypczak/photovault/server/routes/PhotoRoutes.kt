@@ -70,6 +70,7 @@ fun Route.photoRoutes(photoService: PhotoService) {
                     matchMode = parameters["matchMode"],
                     dateFrom = parameters["dateFrom"],
                     dateTo = parameters["dateTo"],
+                    processingStatus = parameters["processingStatus"],
                 )
             }
 
