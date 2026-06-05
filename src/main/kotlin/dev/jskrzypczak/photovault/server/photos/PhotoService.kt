@@ -32,6 +32,7 @@ import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.like
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.neq
 import org.jetbrains.exposed.sql.Table
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.batchInsert
@@ -43,6 +44,7 @@ import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.update
+import org.jetbrains.exposed.sql.upsert
 import org.slf4j.LoggerFactory
 import java.time.Instant
 
@@ -90,6 +92,28 @@ data class PhotoAsset(
     val contentType: String,
     val etag: String,
 )
+
+// ── Source constants (photo_tags / photo_categories `source` column) ──────────────────────────────
+
+/** Assignment created or last confirmed by the user via the app. */
+private const val SOURCE_MANUAL = "manual"
+
+/**
+ * Tombstone — the user explicitly removed this tag/category from the photo.
+ * The ML bot must never re-insert a pair whose source is `denied`.
+ * Denied rows are invisible in all API responses.
+ */
+private const val SOURCE_DENIED = "denied"
+
+/**
+ * Assignment written by the ML categoriser job.
+ * Declared here for documentation; the server never writes this value directly —
+ * it is produced by the nightly Python job.
+ */
+@Suppress("unused")
+private const val SOURCE_AUTO = "auto"
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 /**
  * Domain service for photo read and write operations.
@@ -194,12 +218,23 @@ class PhotoService(private val storage: PhotoAssetStorage) {
         req.isFavorite?.let { fav ->
             Photos.update({ Photos.id eq id }) { it[isFavorite] = fav }
         }
+        // Tags and categories use source-aware replacement: unlinks become `denied` tombstones
+        // instead of physical deletes so the ML bot never re-proposes a pair the user rejected.
         req.tagIds?.let { ids ->
-            replaceRelation(PhotoTags, PhotoTags.photoId, PhotoTags.tagId, id, ids)
+            replaceRelationSourceAware(
+                PhotoTags, PhotoTags.photoId, PhotoTags.tagId,
+                PhotoTags.assignmentSource, PhotoTags.score, PhotoTags.embeddingRun,
+                id, ids,
+            )
         }
         req.categoryIds?.let { ids ->
-            replaceRelation(PhotoCategories, PhotoCategories.photoId, PhotoCategories.categoryId, id, ids)
+            replaceRelationSourceAware(
+                PhotoCategories, PhotoCategories.photoId, PhotoCategories.categoryId,
+                PhotoCategories.assignmentSource, PhotoCategories.score, PhotoCategories.embeddingRun,
+                id, ids,
+            )
         }
+        // Labels are system-defined and have no source tracking — use simple replace.
         req.labelIds?.let { ids ->
             replaceRelation(PhotoLabels, PhotoLabels.photoId, PhotoLabels.labelId, id, ids)
         }
@@ -420,6 +455,58 @@ class PhotoService(private val storage: PhotoAssetStorage) {
     }
 
     /**
+     * Source-aware replacement of the relation between [photoId] and [newIds] in [table].
+     *
+     * Unlike [replaceRelation], this method never physically removes rows:
+     * - **Link** (id ∈ [newIds]): upsert `source = [SOURCE_MANUAL]`, clear `score` and
+     *   `embeddingRun`. Overrides any existing `denied` or `auto` assignment.
+     * - **Unlink** (id currently in DB but absent from [newIds], and not already `denied`):
+     *   set `source = [SOURCE_DENIED]` (tombstone). Leaves `score`/`embeddingRun` intact as
+     *   free hard-negatives for the classifier.
+     * - Ids already `denied` and absent from [newIds]: left unchanged (already tombstoned).
+     *
+     * Called only after all ids in [newIds] have been validated. Runs inside the caller's
+     * transaction.
+     */
+    private fun replaceRelationSourceAware(
+        table: Table,
+        photoIdCol: Column<String>,
+        fkCol: Column<String>,
+        sourceCol: Column<String>,
+        scoreCol: Column<Double?>,
+        embeddingRunCol: Column<String?>,
+        photoId: String,
+        newIds: List<String>,
+    ) {
+        // Load the current (fkId → source) snapshot for this photo.
+        val existing: Map<String, String> = table
+            .select(fkCol, sourceCol)
+            .where { photoIdCol eq photoId }
+            .associate { it[fkCol] to it[sourceCol] }
+
+        // (Re-)link: upsert with source=manual, clearing ML-produced fields.
+        for (fkId in newIds) {
+            table.upsert(photoIdCol, fkCol) {
+                it[photoIdCol] = photoId
+                it[fkCol] = fkId
+                it[sourceCol] = SOURCE_MANUAL
+                it[scoreCol] = null
+                it[embeddingRunCol] = null
+            }
+        }
+
+        // Unlink: write a denied tombstone instead of deleting the row.
+        val newIdSet = newIds.toSet()
+        for ((fkId, source) in existing) {
+            if (fkId !in newIdSet && source != SOURCE_DENIED) {
+                table.update({ (photoIdCol eq photoId) and (fkCol eq fkId) }) {
+                    it[sourceCol] = SOURCE_DENIED
+                }
+            }
+        }
+    }
+
+    /**
      * Parses the raw [matchMode] string into a [MatchMode] enum.
      *
      * `null` and `"all"` both map to [MatchMode.ALL] (the default). Any other value throws
@@ -464,6 +551,10 @@ class PhotoService(private val storage: PhotoAssetStorage) {
      * [MatchMode.ALL]: `GROUP BY photoId HAVING COUNT(*) = ids.size` — photo must have all ids.
      * [MatchMode.ANY]: plain `WHERE fkId IN ids` — photo must have at least one id.
      *
+     * When [sourceCol] is non-null, `denied` tombstone rows are excluded so that a denied
+     * link cannot satisfy a filter query. Pass `null` for tables without a source column
+     * (e.g. [PhotoLabels]).
+     *
      * The junction PK `(photoId, fkId)` guarantees no duplicate pairs, so the HAVING count
      * equals the number of distinct matched ids. Uses [InSubQueryOp] directly.
      */
@@ -473,8 +564,14 @@ class PhotoService(private val storage: PhotoAssetStorage) {
         fkCol: Column<String>,
         ids: List<String>,
         mode: MatchMode,
+        sourceCol: Column<String>? = null,
     ): Op<Boolean> {
-        val base = table.select(photoIdCol).where { fkCol inList ids }
+        val base = table.select(photoIdCol).where {
+            if (sourceCol != null)
+                (fkCol inList ids) and (sourceCol neq SOURCE_DENIED)
+            else
+                fkCol inList ids
+        }
         val sub = if (mode == MatchMode.ALL)
             base.groupBy(photoIdCol).having { fkCol.count() eq ids.size.toLong() }
         else base
@@ -501,14 +598,18 @@ class PhotoService(private val storage: PhotoAssetStorage) {
         }
 
         if (query.tagIds.isNotEmpty()) {
-            p = p and relationSubquery(PhotoTags, PhotoTags.photoId, PhotoTags.tagId, query.tagIds, mode)
+            p = p and relationSubquery(PhotoTags, PhotoTags.photoId, PhotoTags.tagId, query.tagIds, mode, PhotoTags.assignmentSource)
         }
 
         if (query.categoryIds.isNotEmpty()) {
-            p = p and relationSubquery(PhotoCategories, PhotoCategories.photoId, PhotoCategories.categoryId, query.categoryIds, mode)
+            p = p and relationSubquery(
+                PhotoCategories, PhotoCategories.photoId, PhotoCategories.categoryId,
+                query.categoryIds, mode, PhotoCategories.assignmentSource,
+            )
         }
 
         if (query.labelIds.isNotEmpty()) {
+            // Labels have no source column — use simple subquery.
             p = p and relationSubquery(PhotoLabels, PhotoLabels.photoId, PhotoLabels.labelId, query.labelIds, mode)
         }
 
@@ -557,42 +658,63 @@ class PhotoService(private val storage: PhotoAssetStorage) {
     /**
      * Batch-fetches tags for the given [photoIds] in a single query.
      *
-     * [TagDto.photoCount] is the global count of how many photos carry that tag,
-     * computed via a sub-query on the full [PhotoTags] table.
+     * [TagDto.photoCount] is the global count of how many photos carry that tag (denied
+     * tombstone rows excluded). Denied assignments are also excluded from the per-photo list
+     * so they remain invisible in all API responses.
      *
      * Returns a map of `photoId → List<TagDto>`.
      */
     private fun fetchTagsForPhotos(photoIds: List<String>): Map<String, List<TagDto>> {
         val countByTag = PhotoTags
             .select(PhotoTags.tagId, PhotoTags.tagId.count())
+            .where { PhotoTags.assignmentSource neq SOURCE_DENIED }
             .groupBy(PhotoTags.tagId)
             .associate { it[PhotoTags.tagId] to it[PhotoTags.tagId.count()] }
 
         return PhotoTags
             .innerJoin(Tags)
-            .select(PhotoTags.photoId, Tags.id, Tags.name)
-            .where { PhotoTags.photoId inList photoIds }
+            .select(PhotoTags.photoId, Tags.id, Tags.name, Tags.autoEnabled, Tags.rolledOut)
+            .where { (PhotoTags.photoId inList photoIds) and (PhotoTags.assignmentSource neq SOURCE_DENIED) }
             .groupBy(
                 { it[PhotoTags.photoId] },
-                { TagDto(it[Tags.id], it[Tags.name], countByTag[it[Tags.id]] ?: 0L) }
+                {
+                    TagDto(
+                        it[Tags.id],
+                        it[Tags.name],
+                        countByTag[it[Tags.id]] ?: 0L,
+                        it[Tags.autoEnabled],
+                        it[Tags.rolledOut],
+                    )
+                },
             )
     }
 
     /**
      * Batch-fetches categories for the given [photoIds] in a single query.
      *
+     * [CategoryDto.photoCount] excludes denied tombstone rows, matching the visible
+     * assignment list. Denied rows are hidden from the per-photo list as well.
+     *
      * Returns a map of `photoId → List<CategoryDto>`.
      */
     private fun fetchCategoriesForPhotos(photoIds: List<String>): Map<String, List<CategoryDto>> {
         val countByCat = PhotoCategories
             .select(PhotoCategories.categoryId, PhotoCategories.categoryId.count())
+            .where { PhotoCategories.assignmentSource neq SOURCE_DENIED }
             .groupBy(PhotoCategories.categoryId)
             .associate { it[PhotoCategories.categoryId] to it[PhotoCategories.categoryId.count()] }
 
         return PhotoCategories
             .innerJoin(Categories)
-            .select(PhotoCategories.photoId, Categories.id, Categories.name, Categories.colorHex)
-            .where { PhotoCategories.photoId inList photoIds }
+            .select(
+                PhotoCategories.photoId,
+                Categories.id,
+                Categories.name,
+                Categories.colorHex,
+                Categories.autoEnabled,
+                Categories.rolledOut,
+            )
+            .where { (PhotoCategories.photoId inList photoIds) and (PhotoCategories.assignmentSource neq SOURCE_DENIED) }
             .groupBy(
                 { it[PhotoCategories.photoId] },
                 {
@@ -601,8 +723,10 @@ class PhotoService(private val storage: PhotoAssetStorage) {
                         it[Categories.name],
                         it[Categories.colorHex],
                         countByCat[it[Categories.id]] ?: 0L,
+                        it[Categories.autoEnabled],
+                        it[Categories.rolledOut],
                     )
-                }
+                },
             )
     }
 

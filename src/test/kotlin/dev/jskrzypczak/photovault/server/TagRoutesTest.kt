@@ -352,4 +352,65 @@ class TagRoutesTest {
         val body = lenient.parseToJsonElement(r.bodyAsText()).jsonObject
         assertTrue(body["type"]?.jsonPrimitive?.content?.endsWith("tag-not-found") == true)
     }
+
+    // ── autoEnabled / rolledOut fields ────────────────────────────────────────
+
+    @Test
+    fun `GET tags response includes autoEnabled and rolledOut fields with correct defaults`() = withApp {
+        val token = loginToken()
+        val r = client.get("/v1/tags") { header(HttpHeaders.Authorization, "Bearer $token") }
+        assertEquals(HttpStatusCode.OK, r.status)
+        val item = lenient.parseToJsonElement(r.bodyAsText())
+            .jsonObject["items"]!!.jsonArray
+            .firstOrNull { it.jsonObject["id"]?.jsonPrimitive?.content == tagWithPhotoId }
+            ?.jsonObject
+        assertNotNull(item, "fixture tag must be present")
+        assertNotNull(item!!["autoEnabled"], "TagDto must include autoEnabled")
+        assertNotNull(item["rolledOut"], "TagDto must include rolledOut")
+        // Default for new tags: autoEnabled=false, rolledOut=true
+        assertEquals(false, item["autoEnabled"]!!.jsonPrimitive.content.toBoolean())
+        assertEquals(true, item["rolledOut"]!!.jsonPrimitive.content.toBoolean())
+    }
+
+    @Test
+    fun `PATCH tag with only autoEnabled=true succeeds without providing name`() = withApp {
+        val token = loginToken()
+        val createR = client.post("/v1/tags") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"#flagtest"}""")
+        }
+        val id = lenient.parseToJsonElement(createR.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        val r = client.patch("/v1/tags/$id") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody("""{"autoEnabled":true}""")
+        }
+        assertEquals(HttpStatusCode.OK, r.status)
+        val body = lenient.parseToJsonElement(r.bodyAsText()).jsonObject
+        assertEquals(true, body["autoEnabled"]?.jsonPrimitive?.content?.toBoolean())
+        // Name should be unchanged
+        assertEquals("#flagtest", body["name"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `PATCH tag sets rolledOut to false`() = withApp {
+        val token = loginToken()
+        val createR = client.post("/v1/tags") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"#rollouttest"}""")
+        }
+        val id = lenient.parseToJsonElement(createR.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        val r = client.patch("/v1/tags/$id") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody("""{"rolledOut":false}""")
+        }
+        assertEquals(HttpStatusCode.OK, r.status)
+        val body = lenient.parseToJsonElement(r.bodyAsText()).jsonObject
+        assertEquals(false, body["rolledOut"]?.jsonPrimitive?.content?.toBoolean())
+    }
 }

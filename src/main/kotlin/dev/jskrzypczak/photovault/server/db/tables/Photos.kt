@@ -24,5 +24,11 @@ object Photos : Table("photos") {
     val mediumPath = varchar("medium_path", 1024).nullable()
     val thumbnailPath = varchar("thumbnail_path", 1024).nullable()
 
+    /** When this photo was last embedded by the categoriser (null = not yet embedded). */
+    val embeddedAt = timestamp("embedded_at").nullable()
+
+    /** Model id used for the last embedding run (e.g. `"mobileclip-s2-onnx"`). */
+    val embeddingModel = varchar("embedding_model", 128).nullable()
+
     override val primaryKey = PrimaryKey(id)
 }

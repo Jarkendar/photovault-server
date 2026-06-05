@@ -51,10 +51,10 @@ fun Route.tagRoutes(tagService: TagService) {
                         slug = "validation-failed",
                         httpStatus = HttpStatusCode.BadRequest,
                         title = "Validation Failed",
-                        detail = "Request body must contain 'name'",
+                        detail = "Request body must be a valid JSON object",
                     )
                 }
-                val tag = tagService.renameTag(id, req.name)
+                val tag = tagService.updateTag(id, req.name, req.autoEnabled, req.rolledOut)
                 call.respond(HttpStatusCode.OK, tag)
             }
 

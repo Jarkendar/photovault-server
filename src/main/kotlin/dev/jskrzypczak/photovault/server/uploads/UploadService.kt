@@ -38,6 +38,16 @@ private const val STATUS_CANCELLED = "cancelled"
 /** Photo processing status set after a successful upload. The categoriser will advance it to `ready`. */
 private const val STATUS_PHOTO_PENDING_CATEGORIZATION = "pending_categorization"
 
+/**
+ * Photo processing status written by the nightly categoriser job once a photo has been
+ * embedded and scored. Transition: `pending_categorization` → `ready`.
+ *
+ * The server itself never writes this value — it is set by the Python categoriser in
+ * the same transaction as the junction-table inserts.
+ */
+@Suppress("unused")
+private const val STATUS_PHOTO_READY = "ready"
+
 private val CANCELLABLE_STATUSES = setOf("created", "uploading", STATUS_PROCESSING)
 private val ALLOWED_MIME_TYPES = setOf("image/jpeg", "image/png")
 

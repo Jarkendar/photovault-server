@@ -54,7 +54,7 @@ fun Route.categoryRoutes(categoryService: CategoryService) {
                         detail = "Request body must be a valid JSON object",
                     )
                 }
-                val cat = categoryService.updateCategory(id, req.name, req.colorHex)
+                val cat = categoryService.updateCategory(id, req.name, req.colorHex, req.autoEnabled, req.rolledOut)
                 call.respond(HttpStatusCode.OK, cat)
             }
 

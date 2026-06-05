@@ -369,4 +369,66 @@ class CategoryRoutesTest {
         val body = lenient.parseToJsonElement(r.bodyAsText()).jsonObject
         assertTrue(body["type"]?.jsonPrimitive?.content?.endsWith("category-not-found") == true)
     }
+
+    // ── autoEnabled / rolledOut fields ────────────────────────────────────────
+
+    @Test
+    fun `GET categories response includes autoEnabled and rolledOut fields with correct defaults`() = withApp {
+        val token = loginToken()
+        val r = client.get("/v1/categories") { header(HttpHeaders.Authorization, "Bearer $token") }
+        assertEquals(HttpStatusCode.OK, r.status)
+        val item = lenient.parseToJsonElement(r.bodyAsText())
+            .jsonObject["items"]!!.jsonArray
+            .firstOrNull { it.jsonObject["id"]?.jsonPrimitive?.content == catWithPhotoId }
+            ?.jsonObject
+        assertNotNull(item, "fixture category must be present")
+        assertNotNull(item!!["autoEnabled"], "CategoryDto must include autoEnabled")
+        assertNotNull(item["rolledOut"], "CategoryDto must include rolledOut")
+        // Default for new categories: autoEnabled=false, rolledOut=true
+        assertEquals(false, item["autoEnabled"]!!.jsonPrimitive.content.toBoolean())
+        assertEquals(true, item["rolledOut"]!!.jsonPrimitive.content.toBoolean())
+    }
+
+    @Test
+    fun `PATCH category with only autoEnabled=true succeeds without changing name or color`() = withApp {
+        val token = loginToken()
+        val createR = client.post("/v1/categories") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"FlagTestCat","colorHex":"#1A1A1A"}""")
+        }
+        val id = lenient.parseToJsonElement(createR.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        val r = client.patch("/v1/categories/$id") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody("""{"autoEnabled":true}""")
+        }
+        assertEquals(HttpStatusCode.OK, r.status)
+        val body = lenient.parseToJsonElement(r.bodyAsText()).jsonObject
+        assertEquals(true, body["autoEnabled"]?.jsonPrimitive?.content?.toBoolean())
+        // Name and color must be unchanged
+        assertEquals("FlagTestCat", body["name"]?.jsonPrimitive?.content)
+        assertEquals("#1A1A1A", body["colorHex"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `PATCH category sets rolledOut to false`() = withApp {
+        val token = loginToken()
+        val createR = client.post("/v1/categories") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"RolloutTestCat","colorHex":"#2B2B2B"}""")
+        }
+        val id = lenient.parseToJsonElement(createR.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        val r = client.patch("/v1/categories/$id") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody("""{"rolledOut":false}""")
+        }
+        assertEquals(HttpStatusCode.OK, r.status)
+        val body = lenient.parseToJsonElement(r.bodyAsText()).jsonObject
+        assertEquals(false, body["rolledOut"]?.jsonPrimitive?.content?.toBoolean())
+    }
 }
