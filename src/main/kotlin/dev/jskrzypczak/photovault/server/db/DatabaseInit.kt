@@ -14,7 +14,6 @@ import dev.jskrzypczak.photovault.server.db.tables.Tags
 import dev.jskrzypczak.photovault.server.db.tables.Uploads
 import dev.jskrzypczak.photovault.server.db.tables.Users
 import org.jetbrains.exposed.sql.SchemaUtils
-import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.upsert
@@ -67,15 +66,14 @@ fun seedLabels() {
 }
 
 fun seedAdminUser() {
-    if (Users.selectAll().count() == 0L) {
-        val hash = BCrypt.withDefaults().hashToString(12, "password123".toCharArray())
-        Users.insert {
-            it[id] = "user-admin"
-            it[username] = "admin"
-            it[displayName] = "Admin"
-            it[passwordHash] = hash
-            it[createdAt] = Instant.now()
-        }
-        log.info("Seeded admin user")
+    val hash = BCrypt.withDefaults().hashToString(12, "password123".toCharArray())
+    Users.upsert(Users.id) {
+        it[id] = "user-admin"
+        it[username] = "admin"
+        it[displayName] = "Admin"
+        it[passwordHash] = hash
+        it[role] = "admin"
+        it[createdAt] = Instant.now()
     }
+    log.info("Seeded admin user")
 }

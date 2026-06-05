@@ -48,7 +48,7 @@ class AuthService(private val jwtService: JwtService) {
             displayName = row[Users.displayName],
         )
 
-        issueTokenPair(userId, user)
+        issueTokenPair(userId, user, row[Users.role])
     }
 
     /**
@@ -81,19 +81,18 @@ class AuthService(private val jwtService: JwtService) {
             it[revoked] = true
         }
 
-        val user = Users.selectAll()
+        val userRow = Users.selectAll()
             .where { Users.id eq userId }
             .firstOrNull()
-            ?.let { u ->
-                UserDto(
-                    id = u[Users.id],
-                    username = u[Users.username],
-                    displayName = u[Users.displayName],
-                )
-            }
             ?: throw invalidToken()
 
-        issueTokenPair(userId, user)
+        val user = UserDto(
+            id = userRow[Users.id],
+            username = userRow[Users.username],
+            displayName = userRow[Users.displayName],
+        )
+
+        issueTokenPair(userId, user, userRow[Users.role])
     }
 
     /**
@@ -134,9 +133,9 @@ class AuthService(private val jwtService: JwtService) {
     // ─── helpers ───────────────────────────────────────────────────────────────
 
     /** Issues a fresh token pair and persists the new refresh-token row. Must be called inside a transaction. */
-    private fun issueTokenPair(userId: String, user: UserDto): AuthResponse {
+    private fun issueTokenPair(userId: String, user: UserDto, role: String? = null): AuthResponse {
         val (refreshTokenStr, jti) = jwtService.generateRefreshToken(userId)
-        val accessTokenStr = jwtService.generateAccessToken(userId, jti)
+        val accessTokenStr = jwtService.generateAccessToken(userId, jti, role)
 
         RefreshTokens.insert {
             it[RefreshTokens.jti] = jti
