@@ -30,5 +30,11 @@ object Photos : Table("photos") {
     /** Model id used for the last embedding run (e.g. `"mobileclip-s2-onnx"`). */
     val embeddingModel = varchar("embedding_model", 128).nullable()
 
+    /** When faces were last detected in this photo by the categoriser (null = not yet detected). */
+    val facesDetectedAt = timestamp("faces_detected_at").nullable()
+
+    /** Face model id used for the last face detection run (e.g. `"buffalo_l"`). */
+    val faceDetectionModel = varchar("face_detection_model", 128).nullable()
+
     override val primaryKey = PrimaryKey(id)
 }

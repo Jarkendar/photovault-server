@@ -2,6 +2,7 @@ package dev.jskrzypczak.photovault.server.db
 
 import at.favre.lib.crypto.bcrypt.BCrypt
 import dev.jskrzypczak.photovault.server.db.tables.Categories
+import dev.jskrzypczak.photovault.server.db.tables.Faces
 import dev.jskrzypczak.photovault.server.db.tables.Labels
 import dev.jskrzypczak.photovault.server.db.tables.PhotoCategories
 import dev.jskrzypczak.photovault.server.db.tables.PhotoLabels
@@ -24,7 +25,8 @@ private val log = LoggerFactory.getLogger("DatabaseInit")
 private val allTables = arrayOf(
     Users, Photos, Tags, Categories, Labels,
     PhotoTags, PhotoCategories, PhotoLabels,
-    Uploads, RefreshTokens
+    Uploads, RefreshTokens,
+    Faces
 )
 
 fun initDatabase() {
@@ -33,6 +35,8 @@ fun initDatabase() {
         SchemaUtils.createMissingTablesAndColumns(*allTables)
         exec("CREATE INDEX IF NOT EXISTS idx_photos_cursor ON photos (uploaded_at DESC, id DESC)")
         exec("CREATE INDEX IF NOT EXISTS idx_photos_effective_date ON photos (COALESCE(captured_at, uploaded_at))")
+        exec("CREATE INDEX IF NOT EXISTS idx_faces_photo ON faces (photo_id)")
+        exec("CREATE INDEX IF NOT EXISTS idx_faces_cluster ON faces (cluster_id) WHERE cluster_id IS NOT NULL")
         // Widen processing_status to accommodate "pending_categorization" (22 chars).
         // Safe to run repeatedly — PostgreSQL allows widening a VARCHAR without data loss.
         exec("ALTER TABLE photos ALTER COLUMN processing_status TYPE VARCHAR(32)")

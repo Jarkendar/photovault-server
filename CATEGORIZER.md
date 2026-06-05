@@ -169,16 +169,49 @@ Two work queues per run:
 ## Phase 2 — People
 
 **Signal type:** identity — family members, `#babcia`, friends.
-**Technique:** dedicated face detection + recognition model + **separate** vector store (face embeddings live in a different space than CLIP scene embeddings).
+**Technique:** InsightFace **buffalo_l** (SCRFD detector + ArcFace R50, ONNX) + **separate** face vector store (face embeddings live in a different space than CLIP scene embeddings).
 
-- [ ] Pick face model (e.g. InsightFace / ArcFace ONNX) — lightweight enough for Pi inference on small faces.
-- [ ] Separate vector store file for face embeddings (e.g. `faces.hnsw`), keyed by a `face-<uuid>` id
-  that maps back to a `photo-<uuid>` + bounding box.
-- [ ] Face clustering: DBSCAN or agglomerative on face embeddings → proposed identities.
-  User labels a cluster → maps to a `tag-*` or `category-*` id.
-- [ ] Once labelled: flip `auto_enabled = true` on those person tags/categories.
-  Subsequent nightly runs assign new photos matching a known face cluster as `source = auto`.
-- [ ] **Do not mix** face vectors into the CLIP store — the two spaces are incompatible.
+**Decisions:**
+- [x] Face model: InsightFace **buffalo_l** (SCRFD-10G detector + ArcFace R50 → 512-d L2-norm vector).
+- [x] Face store: `faces-buffalo_l.npz` keyed by `face-<uuid>`, separate from CLIP store.
+- [x] Face metadata: `faces` table in PostgreSQL (bbox in medium.jpg pixels, det_score, cluster_id, model).
+- [x] Labelling flow: **admin API** (`/v1/admin/face-clusters`) — separate web/desktop tool, NOT the Android app.
+- [x] Do not mix face vectors into the CLIP store.
+
+### Iteration 1 — Detection + face store
+
+- [x] **`db/tables/Faces.kt`** — `faces` table (face_id PK, photo_id FK→CASCADE, bbox x/y/w/h, det_score, cluster_id nullable, face_model, embedding_run, detected_at).
+- [x] **`db/tables/Photos.kt`** — add `faces_detected_at timestamp?` + `face_detection_model varchar(128)?`.
+- [x] **`db/DatabaseInit.kt`** — add `Faces` to `allTables`; indexes `idx_faces_photo`, `idx_faces_cluster`.
+- [x] **`categorizer/config.py`** — `FACE_MODEL_ID`, `FACE_DET_THRESH`, `FACE_MIN_PX`, `FACE_DET_SIZE`, `FACE_MATCH_THRESHOLD`; extended `Config` with face fields.
+- [x] **`categorizer/face_model.py`** — `load_face_app()`, `detect_and_embed()` → `list[FaceDetection]`.
+- [x] **`categorizer/face_store.py`** — `FaceStore` npz keyed by face_id (upsert, prune, matrix, get_vec).
+- [x] **`categorizer/db.py`** — `fetch_face_detection_backlog`, `insert_faces`, `mark_faces_detected`, `fetch_all_face_ids`.
+- [x] **`categorizer/cli/detect_faces.py`** — bulk face detection backfill (PC/RTX): backlog → detect → insert DB rows + npz, chunked, resumable.
+- [x] **`categorizer/cli/categorize.py`** — face detection pass added to nightly run (after CLIP); face store prune added.
+- [x] **`requirements.txt` / `pyproject.toml`** — `insightface`, `onnxruntime`, `opencv-python-headless`.
+- [x] **`Dockerfile`** — system deps for OpenCV; buffalo_l pre-downloaded at build time.
+- [x] **`.env.example`** — face pipeline variables documented.
+
+**Open knobs to tune after first real run (document values in README and config.py):**
+- [ ] `FACE_DET_THRESH` — calibrate on real photos (default: 0.5)
+- [ ] `FACE_MIN_PX` — calibrate minimum face size (default: 40 px)
+
+### Iteration 2 — Clustering + admin API labelling ☐
+
+- [ ] **`cli/cluster_faces.py`** — DBSCAN on unassigned face vectors → `face_clusters` rows + `faces.cluster_id`.
+  Tune: `eps` parameter (cosine metric), `min_samples`.
+- [ ] **`db/tables/FaceClusters.kt`** — server-side table (`fcluster-uuid`, tag_id?, category_id?, representative_face_id, face_count, created_at).
+- [ ] **`metadata/FaceService.kt`** + **`routes/FaceRoutes.kt`** — admin API under `/v1/admin/face-clusters`.
+- [ ] **`dto/FaceDtos.kt`** — `FaceClusterDto`, `FaceDto`, `LabelClusterRequest`.
+- [ ] **`auth/JwtService.kt`** — admin role claim + `requireAdmin` guard in FaceRoutes.
+- [ ] **`contract/openapi.yaml` + `contract/api.md`** — PR with admin face endpoints (separate from mobile client scope).
+
+### Iteration 3 — Nightly identity matching ☐
+
+- [ ] **`cli/categorize.py`** — build identity prototypes from labelled clusters; cosine match new faces → `write.assign_auto`.
+  Tune: `FACE_MATCH_THRESHOLD` (default: 0.50); handle multi-cluster per person (average across all clusters).
+- [ ] Extended summary log: `faces detected: N, faces matched: M, new unlabeled faces: K`.
 
 ---
 
