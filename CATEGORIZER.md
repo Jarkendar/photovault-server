@@ -210,7 +210,7 @@ Two work queues per run:
 - [x] **`db.py`** — `fetch_unclustered_faces`, `insert_face_cluster`, `update_faces_cluster_id`.
 - [x] **`tests/test_clustering.py`** — 6 unit tests for DBSCAN clustering logic (no DB / model needed).
 - [x] **`FaceRoutesTest.kt`** — 12 server integration tests (auth guard, list, faces-in-cluster, label writes source=auto, denied not overwritten, delete).
-- [ ] **`contract/openapi.yaml` + `contract/api.md`** — PR with admin face endpoints (separate from mobile client scope).
+- [x] **`contract/openapi.yaml` + `contract/api.md`** — PR with admin face endpoints (separate from mobile client scope).
 
 ### Iteration 3 — Nightly identity matching ✅
 
