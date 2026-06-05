@@ -21,7 +21,7 @@ nightly Pi run from colliding with an on-demand PC session. Trigger: `docker run
 
 | # | Phase | Scope | Status |
 |---|---|---|---|
-| 0 | Schema + state model | Additive Exposed columns; `source`-aware read/write paths in the Ktor server | ☐ |
+| 0 | Schema + state model | Additive Exposed columns; `source`-aware read/write paths in the Ktor server | ✅ |
 | 1 | CLIP visual pipeline | Embedder export, vector store, PL→EN prompts, nightly Pi job, add-label backfill | ☐ |
 | 2 | People | Face model + separate face store, identity clustering, family tags | ☐ |
 | 3 | Events | Vacation / trip heuristic from `captured_at` + `lat`/`lng` (no network) | ☐ |
@@ -66,19 +66,19 @@ listings, or `photoCount`). They are free hard negatives for future classifier h
 
 ### Schema additions
 
-- [ ] **`PhotoTags`** (`db/tables/PhotoTags.kt`) — add three columns:
+- [x] **`PhotoTags`** (`db/tables/PhotoTags.kt`) — add three columns:
   - `score` `double?` nullable — classifier confidence (null = manually assigned or not yet scored)
-  - `source` `varchar(16)` default `"manual"` — `manual | auto | denied`
+  - `source` `varchar(16)` default `"manual"` — `manual | auto | denied` (Kotlin property: `assignmentSource`)
   - `embedding_run` `varchar(128)?` nullable — identifier of the embedding run that produced this assignment (for auditability / re-scoring)
-- [ ] **`PhotoCategories`** (`db/tables/PhotoCategories.kt`) — same three columns as above
+- [x] **`PhotoCategories`** (`db/tables/PhotoCategories.kt`) — same three columns as above
   - (Labels are system-defined and read-only — out of scope for ML assignment for now)
-- [ ] **`Photos`** (`db/tables/Photos.kt`) — add:
+- [x] **`Photos`** (`db/tables/Photos.kt`) — add:
   - `embedded_at` `timestamp?` nullable — when this photo was last embedded
   - `embedding_model` `varchar(128)?` nullable — model id used (e.g. `"mobileclip-s2-onnx"`)
-- [ ] **`Categories`** (`db/tables/Categories.kt`) — add:
+- [x] **`Categories`** (`db/tables/Categories.kt`) — add:
   - `auto_enabled` `bool` default `false`
   - `rolled_out` `bool` default `true`
-- [ ] **`Tags`** (`db/tables/Tags.kt`) — add:
+- [x] **`Tags`** (`db/tables/Tags.kt`) — add:
   - `auto_enabled` `bool` default `false`
   - `rolled_out` `bool` default `true`
 
@@ -88,22 +88,21 @@ The current `PhotoService.replaceRelation` (`photos/PhotoService.kt:406`) does a
 `deleteWhere + batchInsert` — a PATCH from the app would wipe ML-written `source`/`score`/`denied` rows.
 It must become `source`-aware **before** Phase 1 writes anything.
 
-- [ ] **Rework `updatePhoto` / `replaceRelation`** (`photos/PhotoService.kt`):
+- [x] **Rework `updatePhoto` / `replaceRelation`** (`photos/PhotoService.kt`):
   - An unlink (id present in current junction but absent from the new list) → **upsert `source = denied`**, do NOT delete the row.
   - A (re-)link (id in new list) → upsert `source = manual`, `score = null`, `embedding_run = null` (overrides existing `denied` or `auto`).
   - IDs not mentioned in the request (`tagIds = null`) → unchanged (existing set-semantics: `null` means "do not touch").
-- [ ] **Filter `source = 'denied'` from all read paths:**
-  - `fetchTagsForPhotos` / `fetchCategoriesForPhotos` (~`photos/PhotoService.kt:565-635`) — add `AND source <> 'denied'`
-  - `getPhoto` single-photo fetch — same filter
+- [x] **Filter `source = 'denied'` from all read paths:**
+  - `fetchTagsForPhotos` / `fetchCategoriesForPhotos` — deny filter on both per-photo query and global `photoCount` subquery
+  - `getPhoto` single-photo fetch — inherits via the batch helpers
   - `photoCount` sub-queries in `metadata/CategoryService.kt` and `metadata/TagService.kt` — exclude `denied` rows
-- [ ] **`processing_status` transition** — nightly job flips `pending_categorization → ready` after scoring.
-  The column is `varchar(32)`, value `"ready"` fits. Document the transition in server code with a constant
-  (analogous to `STATUS_PHOTO_PENDING_CATEGORIZATION` in `uploads/UploadService.kt:39`).
-- [ ] **Expose `auto_enabled` / `rolled_out` via API** (optional, Phase 0 stretch):
-  - At minimum, surface them in `CategoryDto` / `TagDto` so the Android client can show "bot-managed" labels.
-  - Writable via `PATCH /v1/categories/{id}` / `PATCH /v1/tags/{id}` (already exists).
-  - Requires a **contract submodule** update (`contract/openapi.yaml`, `contract/api.md`).
-  - `source` and `score` stay server-internal for now (no API exposure until contract is updated).
+  - `relationSubquery` (tag/category id filters in `buildFilterPredicate`) — denied rows cannot satisfy a filter
+- [x] **`processing_status` transition** — `STATUS_PHOTO_READY = "ready"` constant added in `uploads/UploadService.kt`.
+- [x] **Expose `auto_enabled` / `rolled_out` via API** (stretch — done):
+  - Surfaced in `CategoryDto` / `TagDto` (required fields).
+  - Writable via `PATCH /v1/categories/{id}` / `PATCH /v1/tags/{id}` (all PATCH fields now optional for tags).
+  - Contract submodule updated (`contract/openapi.yaml`, `contract/api.md`).
+  - `source` and `score` stay server-internal.
 
 ---
 
