@@ -1,3 +1,6 @@
 [submodule "contract"]
 	path = contract
 	url = git@github.com:Jarkendar/photovault-api-contract.git
+[submodule "categorizer"]
+	path = categorizer
+	url = git@github.com:Jarkendar/photovault-categorizer.git
