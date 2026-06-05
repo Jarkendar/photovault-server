@@ -196,6 +196,8 @@ Two work queues per run:
 **Open knobs to tune after first real run (document values in README and config.py):**
 - [ ] `FACE_DET_THRESH` — calibrate on real photos (default: 0.5)
 - [ ] `FACE_MIN_PX` — calibrate minimum face size (default: 40 px)
+- [ ] `FACE_MATCH_THRESHOLD` — cosine floor for identity matching (default: 0.5); verify on photos of the same person at different ages/lighting before enabling nightly matching
+- [ ] **Tag vs category convention for persons** — decide whether people are modelled as `#`-tags or as category albums; this affects which branch of `assign_auto` the label handler picks; record decision in this file once settled
 
 ### Iteration 2 — Clustering + admin API labelling ✅
 
