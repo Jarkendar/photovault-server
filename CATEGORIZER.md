@@ -222,21 +222,27 @@ Two work queues per run:
 
 ---
 
-## Phase 3 — Events
+## Phase 3 — Events ✅
 
 **Signal type:** temporal + geographic — vacations, trips, outings.
 **Technique:** pure heuristic clustering over `captured_at` + `lat` / `lng` + `place_name`; no network call, no model.
 
-Vacation heuristic definition (to tune):
-- Away from home: lat/lng centroid outside a configurable home radius.
-- Multi-day: cluster spans ≥ 2 calendar days.
-- Minimum photos: ≥ 10 photos in the cluster.
+Heuristic (all three must hold):
+- Away from home: GPS centroid of cluster > `HOME_RADIUS_KM` from home coordinates.
+- Multi-day: cluster spans ≥ `EVENT_MIN_DAYS` distinct calendar days (default 2).
+- Minimum photos: ≥ `EVENT_MIN_PHOTOS` photos in session (default 10).
 
-- [ ] SQL / Python script: group photos into temporal clusters (gap > 6 h = new cluster), filter by
-  heuristic above, propose a category name (e.g. `"Trip · {place_name} · {year-month}"`).
-- [ ] Write proposed categories to `categories` with `auto_enabled = true`, `rolled_out = false`.
-  `add_label.py` (Phase 1) then backfills the assignment.
-- [ ] Home coordinates stored in job config (env var or config file) — **not** in the database.
+- [x] **`categorizer/event_clustering.py`** — pure clustering logic: `cluster_by_time`, `passes_heuristic`, `haversine_km`, `cluster_centroid`, `suggest_category_name`, `pick_category_color`.
+- [x] **`categorizer/cli/detect_events.py`** — on-demand script: fetches timestamped photos, clusters, filters by heuristic, creates categories (`cat-<uuid>`, `auto_enabled=true`, `rolled_out=true`), writes `source='auto'` `photo_categories` rows inline.
+- [x] **`config.py`** — `HOME_LAT`, `HOME_LNG`, `HOME_RADIUS_KM`, `EVENT_GAP_HOURS`, `EVENT_MIN_DAYS`, `EVENT_MIN_PHOTOS`.
+- [x] **`db.py`** — `fetch_photos_with_location`, `create_event_category` (idempotent by name).
+- [x] **`.env.example`** — Phase 3 variables documented.
+- [x] **`tests/test_event_clustering.py`** — 25 pure unit tests (no DB / model needed).
+
+**Open knobs to tune after first real run:**
+- [ ] `HOME_RADIUS_KM` — default 25 km; adjust to match actual commute range vs weekend trips.
+- [ ] `EVENT_GAP_HOURS` — default 6 h; lower if short day-trips should be separate sessions.
+- [ ] `EVENT_MIN_DAYS` / `EVENT_MIN_PHOTOS` — lower if short trips are being missed; raise if home sessions leak through.
 
 ---
 
