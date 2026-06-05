@@ -42,6 +42,7 @@ dependencies {
     implementation(libs.bcrypt)
     implementation(libs.ktor.server.auth)
     implementation(libs.ktor.server.auth.jwt)
+    implementation(libs.ktor.server.cors)
     implementation(libs.thumbnailator)
 
     testImplementation(libs.ktor.server.test.host)

@@ -10,6 +10,7 @@ import dev.jskrzypczak.photovault.server.metadata.TagService
 import dev.jskrzypczak.photovault.server.photos.PhotoService
 import dev.jskrzypczak.photovault.server.uploads.UploadService
 import dev.jskrzypczak.photovault.server.users.UserService
+import dev.jskrzypczak.photovault.server.plugins.configureCors
 import dev.jskrzypczak.photovault.server.plugins.configureDatabase
 import dev.jskrzypczak.photovault.server.plugins.configureMonitoring
 import dev.jskrzypczak.photovault.server.plugins.configureRouting
@@ -48,6 +49,7 @@ fun Application.module() {
     val userService = UserService()
     val faceService = FaceService()
 
+    configureCors()
     configureSerialization()
     configureMonitoring()
     configureStatusPages()

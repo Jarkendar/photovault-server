@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PhotoVault — Face Labeler</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #111;
+      color: #eee;
+      min-height: 100vh;
+    }
+
+    /* ── Inputs & buttons ──────────────────────────────────────────────── */
+    input[type=text], input[type=password] {
+      width: 100%;
+      padding: 10px 12px;
+      background: #222;
+      border: 1px solid #444;
+      border-radius: 6px;
+      color: #eee;
+      font-size: 14px;
+    }
+    input:focus { outline: none; border-color: #4a9eff; }
+
+    button {
+      padding: 10px 18px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: opacity 0.1s;
+    }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-primary { background: #4a9eff; color: #fff; }
+    .btn-primary:not(:disabled):hover { background: #3a8eef; }
+    .btn-danger  { background: #e53935; color: #fff; }
+    .btn-danger:not(:disabled):hover  { background: #c62828; }
+    .btn-ghost   { background: #2e2e2e; color: #ccc; }
+    .btn-ghost:not(:disabled):hover   { background: #3a3a3a; }
+
+    /* ── Login ─────────────────────────────────────────────────────────── */
+    #screen-login {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      gap: 10px;
+    }
+    #screen-login h1 { font-size: 1.4rem; margin-bottom: 6px; }
+    #login-form { display: flex; flex-direction: column; gap: 10px; width: 320px; }
+    #login-error { color: #ff6b6b; font-size: 13px; min-height: 18px; }
+
+    /* ── Header ────────────────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 20px;
+      background: #1a1a1a;
+      border-bottom: 1px solid #2a2a2a;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    header h1 { font-size: 1rem; flex: 1; }
+    #cluster-count { color: #777; font-size: 13px; }
+    header button { padding: 7px 13px; font-size: 13px; }
+
+    /* ── Cluster grid ──────────────────────────────────────────────────── */
+    #clusters-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+      gap: 14px;
+      padding: 18px;
+    }
+    .cluster-card {
+      background: #1c1c1c;
+      border: 1px solid #2e2e2e;
+      border-radius: 10px;
+      overflow: hidden;
+      cursor: default;
+      transition: border-color 0.15s;
+    }
+    .cluster-card:hover { border-color: #4a4a4a; }
+    .cluster-canvas {
+      display: block;
+      width: 100%;
+      aspect-ratio: 1;
+      background: #252525;
+    }
+    .cluster-info { padding: 9px 12px 4px; }
+    .cluster-face-count { font-size: 12px; color: #888; }
+    .cluster-assigned   { font-size: 12px; color: #4a9eff; margin-top: 3px; }
+    .cluster-actions    { display: flex; gap: 6px; padding: 8px 12px 11px; }
+    .cluster-actions button { flex: 1; padding: 6px 8px; font-size: 12px; }
+
+    #empty-msg, #loading-msg {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 60px 20px;
+      color: #555;
+    }
+
+    /* ── Spinner ───────────────────────────────────────────────────────── */
+    .spinner {
+      display: inline-block;
+      width: 18px; height: 18px;
+      border: 2px solid #333;
+      border-top-color: #4a9eff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Modal ─────────────────────────────────────────────────────────── */
+    #modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.75);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    #modal {
+      background: #1c1c1c;
+      border: 1px solid #333;
+      border-radius: 12px;
+      width: 90vw;
+      max-width: 820px;
+      max-height: 92vh;
+      display: flex;
+      flex-direction: column;
+    }
+    #modal-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 18px;
+      border-bottom: 1px solid #2a2a2a;
+      flex-shrink: 0;
+    }
+    #modal-header h2 { font-size: 0.95rem; flex: 1; }
+    #modal-face-count { font-size: 12px; color: #777; }
+
+    #faces-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 14px;
+      overflow-y: auto;
+      max-height: 260px;
+      flex-shrink: 0;
+    }
+    .face-canvas {
+      width: 88px; height: 88px;
+      border-radius: 6px;
+      background: #252525;
+      display: block;
+    }
+
+    #label-section {
+      padding: 12px 16px;
+      border-top: 1px solid #2a2a2a;
+      flex-shrink: 0;
+    }
+    #label-search { margin-bottom: 10px; }
+    #label-options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      max-height: 130px;
+      overflow-y: auto;
+    }
+    .label-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 11px;
+      border-radius: 20px;
+      border: 2px solid transparent;
+      background: #272727;
+      cursor: pointer;
+      font-size: 13px;
+      user-select: none;
+    }
+    .label-chip:hover { border-color: #4a4a4a; }
+    .label-chip.selected { border-color: #4a9eff; background: #162d4a; }
+    .color-dot {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    #modal-footer {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      padding: 12px 16px;
+      border-top: 1px solid #2a2a2a;
+      flex-shrink: 0;
+    }
+    #modal-footer button { min-width: 88px; }
+  </style>
+</head>
+<body>
+
+<!-- ── Login ──────────────────────────────────────────────────────────────── -->
+<div id="screen-login">
+  <h1>PhotoVault — Face Labeler</h1>
+  <form id="login-form">
+    <input id="inp-server" type="text"     placeholder="Server URL  (e.g. http://192.168.1.42:8080)">
+    <input id="inp-user"   type="text"     placeholder="Username" autocomplete="username">
+    <input id="inp-pass"   type="password" placeholder="Password" autocomplete="current-password">
+    <button type="submit" class="btn-primary">Login</button>
+  </form>
+  <div id="login-error"></div>
+</div>
+
+<!-- ── Main ───────────────────────────────────────────────────────────────── -->
+<div id="screen-main" hidden>
+  <header>
+    <h1>Face Clusters</h1>
+    <span id="cluster-count"></span>
+    <button id="btn-toggle-all" class="btn-ghost">Show labeled</button>
+    <button id="btn-logout" class="btn-ghost">Logout</button>
+  </header>
+  <div id="clusters-grid"></div>
+</div>
+
+<!-- ── Modal ──────────────────────────────────────────────────────────────── -->
+<div id="modal-overlay" hidden>
+  <div id="modal">
+    <div id="modal-header">
+      <h2 id="modal-title">Label cluster</h2>
+      <span id="modal-face-count"></span>
+    </div>
+    <div id="faces-grid"></div>
+    <div id="label-section">
+      <input id="label-search" type="text" placeholder="Search tags and categories…">
+      <div id="label-options"></div>
+    </div>
+    <div id="modal-footer">
+      <button id="btn-modal-reject" class="btn-danger">Reject cluster</button>
+      <button id="btn-modal-cancel" class="btn-ghost">Cancel</button>
+      <button id="btn-modal-label"  class="btn-primary" disabled>Label</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────────
+const S = {
+  serverUrl: '',
+  token: '',
+  clusters: [],
+  tags: [],
+  categories: [],
+  showAll: false,
+  activeCluster: null,
+  pickedId: null,
+  pickedKind: null,
+  imgCache: new Map(),   // url → Promise<HTMLImageElement>
+};
+
+// ── Session persistence ────────────────────────────────────────────────────────
+function saveSession()    { localStorage.setItem('pv_url', S.serverUrl); localStorage.setItem('pv_tok', S.token); }
+function clearSession()   { localStorage.removeItem('pv_tok'); }
+function restoreSession() {
+  S.serverUrl = localStorage.getItem('pv_url') || 'http://localhost:8080';
+  S.token     = localStorage.getItem('pv_tok') || '';
+  document.getElementById('inp-server').value = S.serverUrl;
+}
+
+// ── API ────────────────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const headers = { Authorization: `Bearer ${S.token}` };
+  if (body) headers['Content-Type'] = 'application/json';
+  const res = await fetch(`${S.serverUrl}/v1${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 401) { logout(); throw new Error('Session expired'); }
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+// ── Image helpers ──────────────────────────────────────────────────────────────
+function loadImg(url) {
+  if (!S.imgCache.has(url)) {
+    S.imgCache.set(url, new Promise((ok, fail) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload  = () => ok(img);
+      img.onerror = fail;
+      img.src = url;
+    }));
+  }
+  return S.imgCache.get(url);
+}
+
+async function drawCrop(canvas, photoId, bx, by, bw, bh) {
+  const url = `${S.serverUrl}/v1/photos/${photoId}/medium`;
+  const ctx = canvas.getContext('2d');
+  try {
+    const img  = await loadImg(url);
+    const pad  = Math.round(Math.min(bw, bh) * 0.25);
+    const sx   = Math.max(0, bx - pad);
+    const sy   = Math.max(0, by - pad);
+    const sw   = Math.min(img.naturalWidth  - sx, bw + pad * 2);
+    const sh   = Math.min(img.naturalHeight - sy, bh + pad * 2);
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+  } catch {
+    ctx.fillStyle = '#252525';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#555';
+    ctx.font = '22px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('?', canvas.width / 2, canvas.height / 2);
+  }
+}
+
+// ── Login ──────────────────────────────────────────────────────────────────────
+document.getElementById('login-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  S.serverUrl = document.getElementById('inp-server').value.replace(/\/$/, '');
+  const username = document.getElementById('inp-user').value.trim();
+  const password = document.getElementById('inp-pass').value;
+  const btn = e.target.querySelector('button[type=submit]');
+  btn.disabled = true;
+  try {
+    const data = await api('POST', '/auth/login', { username, password });
+    S.token = data.accessToken;
+    saveSession();
+    await enterMain();
+  } catch {
+    errEl.textContent = 'Login failed — check server URL and credentials.';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function logout() {
+  clearSession();
+  S.token = '';
+  document.getElementById('screen-main').hidden = true;
+  document.getElementById('screen-login').hidden = false;
+  document.getElementById('inp-pass').value = '';
+}
+document.getElementById('btn-logout').addEventListener('click', logout);
+
+// ── Main screen ────────────────────────────────────────────────────────────────
+async function enterMain() {
+  document.getElementById('screen-login').hidden = true;
+  document.getElementById('screen-main').hidden  = false;
+  await loadAll();
+}
+
+async function loadAll() {
+  const [tagsData, catsData] = await Promise.all([
+    api('GET', '/tags'),
+    api('GET', '/categories'),
+  ]);
+  S.tags       = tagsData.items;
+  S.categories = catsData.items;
+  await loadClusters();
+}
+
+async function loadClusters() {
+  const grid = document.getElementById('clusters-grid');
+  grid.innerHTML = '<div id="loading-msg"><span class="spinner"></span></div>';
+  const qs  = S.showAll ? '' : '?unlabeled=true';
+  const data = await api('GET', `/admin/face-clusters${qs}`);
+  S.clusters = data.items;
+  renderGrid();
+}
+
+document.getElementById('btn-toggle-all').addEventListener('click', async () => {
+  S.showAll = !S.showAll;
+  document.getElementById('btn-toggle-all').textContent = S.showAll ? 'Show unlabeled only' : 'Show labeled';
+  await loadClusters();
+});
+
+function renderGrid() {
+  const grid = document.getElementById('clusters-grid');
+  document.getElementById('cluster-count').textContent =
+    `${S.clusters.length} cluster${S.clusters.length !== 1 ? 's' : ''}`;
+  if (!S.clusters.length) {
+    grid.innerHTML = '<div id="empty-msg">No clusters to label 🎉</div>';
+    return;
+  }
+  grid.innerHTML = '';
+  for (const c of S.clusters) grid.appendChild(buildCard(c));
+}
+
+function buildCard(cluster) {
+  const card   = document.createElement('div');
+  card.className  = 'cluster-card';
+  card.dataset.id = cluster.id;
+
+  // Face crop canvas
+  const canvas = document.createElement('canvas');
+  canvas.className = 'cluster-canvas';
+  canvas.width = canvas.height = 190;
+  card.appendChild(canvas);
+  if (cluster.representativePhotoId && cluster.representativeBboxW) {
+    drawCrop(canvas, cluster.representativePhotoId,
+      cluster.representativeBboxX, cluster.representativeBboxY,
+      cluster.representativeBboxW, cluster.representativeBboxH);
+  }
+
+  // Info
+  const info = document.createElement('div');
+  info.className = 'cluster-info';
+  info.innerHTML = `<div class="cluster-face-count">${cluster.faceCount} face${cluster.faceCount !== 1 ? 's' : ''}</div>`;
+  if (cluster.tagId || cluster.categoryId) {
+    const name = cluster.tagId
+      ? S.tags.find(t => t.id === cluster.tagId)?.name
+      : S.categories.find(c => c.id === cluster.categoryId)?.name;
+    if (name) info.innerHTML += `<div class="cluster-assigned">✓ ${name}</div>`;
+  }
+  card.appendChild(info);
+
+  // Actions
+  const actions = document.createElement('div');
+  actions.className = 'cluster-actions';
+  const btnL = document.createElement('button');
+  btnL.className = 'btn-primary';
+  btnL.textContent = 'Label';
+  btnL.addEventListener('click', () => openModal(cluster));
+  const btnR = document.createElement('button');
+  btnR.className = 'btn-ghost';
+  btnR.textContent = 'Reject';
+  btnR.addEventListener('click', async () => {
+    if (!confirm('Reject this cluster?')) return;
+    await deleteCluster(cluster.id);
+  });
+  actions.appendChild(btnL);
+  actions.appendChild(btnR);
+  card.appendChild(actions);
+
+  return card;
+}
+
+async function deleteCluster(id) {
+  await api('DELETE', `/admin/face-clusters/${id}`);
+  document.querySelector(`.cluster-card[data-id="${id}"]`)?.remove();
+  S.clusters = S.clusters.filter(c => c.id !== id);
+  document.getElementById('cluster-count').textContent =
+    `${S.clusters.length} cluster${S.clusters.length !== 1 ? 's' : ''}`;
+  if (!S.clusters.length) renderGrid();
+}
+
+// ── Modal ──────────────────────────────────────────────────────────────────────
+async function openModal(cluster) {
+  S.activeCluster = cluster;
+  S.pickedId = S.pickedKind = null;
+  document.getElementById('btn-modal-label').disabled = true;
+  document.getElementById('modal-title').textContent = `Cluster  ${cluster.id}`;
+  document.getElementById('modal-face-count').textContent = '';
+  document.getElementById('label-search').value = '';
+  document.getElementById('modal-overlay').hidden = false;
+
+  // Load faces async
+  const facesGrid = document.getElementById('faces-grid');
+  facesGrid.innerHTML = '<span class="spinner"></span>';
+  const data = await api('GET', `/admin/face-clusters/${cluster.id}/faces`);
+  document.getElementById('modal-face-count').textContent = `${data.items.length} faces`;
+  facesGrid.innerHTML = '';
+  for (const face of data.items) {
+    const c = document.createElement('canvas');
+    c.className = 'face-canvas';
+    c.width = c.height = 88;
+    c.title = `score: ${face.detScore.toFixed(2)}`;
+    facesGrid.appendChild(c);
+    drawCrop(c, face.photoId, face.bboxX, face.bboxY, face.bboxW, face.bboxH);
+  }
+
+  renderChips('');
+}
+
+function renderChips(query) {
+  const q   = query.toLowerCase();
+  const box = document.getElementById('label-options');
+  box.innerHTML = '';
+  const matchTag = t => !q || t.name.toLowerCase().includes(q);
+  const matchCat = c => !q || c.name.toLowerCase().includes(q);
+  for (const t of S.tags.filter(matchTag))       box.appendChild(chip(t.id, 'tag',      t.name, null));
+  for (const c of S.categories.filter(matchCat)) box.appendChild(chip(c.id, 'category', c.name, c.colorHex));
+}
+
+function chip(id, kind, name, colorHex) {
+  const el = document.createElement('div');
+  el.className = 'label-chip' + (S.pickedId === id ? ' selected' : '');
+  if (colorHex) {
+    const dot = document.createElement('span');
+    dot.className = 'color-dot';
+    dot.style.background = colorHex;
+    el.appendChild(dot);
+  }
+  el.appendChild(document.createTextNode(name));
+  el.addEventListener('click', () => {
+    S.pickedId = id; S.pickedKind = kind;
+    document.querySelectorAll('.label-chip').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+    document.getElementById('btn-modal-label').disabled = false;
+  });
+  return el;
+}
+
+document.getElementById('label-search').addEventListener('input', e => renderChips(e.target.value));
+
+function closeModal() {
+  document.getElementById('modal-overlay').hidden = true;
+  S.activeCluster = null;
+}
+document.getElementById('btn-modal-cancel').addEventListener('click', closeModal);
+document.getElementById('modal-overlay').addEventListener('click', e => {
+  if (e.target.id === 'modal-overlay') closeModal();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+document.getElementById('btn-modal-label').addEventListener('click', async () => {
+  if (!S.activeCluster || !S.pickedId) return;
+  const btn = document.getElementById('btn-modal-label');
+  btn.disabled = true;
+  try {
+    const body = S.pickedKind === 'tag' ? { tagId: S.pickedId } : { categoryId: S.pickedId };
+    await api('POST', `/admin/face-clusters/${S.activeCluster.id}/label`, body);
+    if (!S.showAll) {
+      document.querySelector(`.cluster-card[data-id="${S.activeCluster.id}"]`)?.remove();
+      S.clusters = S.clusters.filter(c => c.id !== S.activeCluster.id);
+      document.getElementById('cluster-count').textContent =
+        `${S.clusters.length} cluster${S.clusters.length !== 1 ? 's' : ''}`;
+      if (!S.clusters.length) renderGrid();
+    }
+    closeModal();
+  } catch (err) {
+    alert(`Label failed: ${err.message}`);
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('btn-modal-reject').addEventListener('click', async () => {
+  if (!S.activeCluster || !confirm('Reject this cluster?')) return;
+  await deleteCluster(S.activeCluster.id);
+  closeModal();
+});
+
+// ── Bootstrap ──────────────────────────────────────────────────────────────────
+restoreSession();
+if (S.token) {
+  enterMain().catch(() => {
+    document.getElementById('screen-login').hidden = false;
+    document.getElementById('screen-main').hidden  = true;
+  });
+} else {
+  document.getElementById('screen-login').hidden = false;
+}
+</script>
+</body>
+</html>
