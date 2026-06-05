@@ -34,15 +34,18 @@ class JwtService(val config: JwtConfig) {
      *
      * @param userId     The `sub` claim (user's DB id, e.g. "user-admin").
      * @param refreshJti The `rti` claim — jti of the paired refresh token.
+     * @param role       Optional role claim.  Pass `"admin"` to grant access to `/v1/admin/` routes.
      */
-    fun generateAccessToken(userId: String, refreshJti: String): String =
-        JWT.create()
+    fun generateAccessToken(userId: String, refreshJti: String, role: String? = null): String {
+        val builder = JWT.create()
             .withIssuer(config.issuer)
             .withAudience(config.audience)
             .withSubject(userId)
             .withClaim("rti", refreshJti)
             .withExpiresAt(Date(System.currentTimeMillis() + config.accessTtlMinutes * 60_000L))
-            .sign(algorithm)
+        if (role != null) builder.withClaim("role", role)
+        return builder.sign(algorithm)
+    }
 
     /**
      * Generates a signed refresh token and returns the token string together with its jti.

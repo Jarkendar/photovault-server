@@ -3,6 +3,7 @@ package dev.jskrzypczak.photovault.server
 import dev.jskrzypczak.photovault.server.auth.AuthService
 import dev.jskrzypczak.photovault.server.auth.JwtConfig
 import dev.jskrzypczak.photovault.server.auth.JwtService
+import dev.jskrzypczak.photovault.server.faces.FaceService
 import dev.jskrzypczak.photovault.server.metadata.CategoryService
 import dev.jskrzypczak.photovault.server.metadata.LabelService
 import dev.jskrzypczak.photovault.server.metadata.TagService
@@ -45,11 +46,12 @@ fun Application.module() {
     val labelService = LabelService()
     val uploadService = UploadService(photoStorage)
     val userService = UserService()
+    val faceService = FaceService()
 
     configureSerialization()
     configureMonitoring()
     configureStatusPages()
     configureDatabase()
     configureSecurity(jwtConfig)
-    configureRouting(version, authService, photoService, tagService, categoryService, labelService, uploadService, userService)
+    configureRouting(version, authService, photoService, tagService, categoryService, labelService, uploadService, userService, faceService)
 }

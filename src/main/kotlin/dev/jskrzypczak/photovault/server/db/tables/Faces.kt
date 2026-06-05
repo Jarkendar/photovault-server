@@ -32,9 +32,11 @@ object Faces : Table("faces") {
 
     /**
      * Cluster this face belongs to; null until cluster_faces.py assigns it.
-     * FK to FaceClusters is wired in Phase 2 Iter 2.
+     * SET NULL on cascade so face rows survive cluster deletion (e.g. "not a person").
      */
-    val clusterId = varchar("cluster_id", 64).nullable()
+    val clusterId = varchar("cluster_id", 64)
+        .references(FaceClusters.id, onDelete = ReferenceOption.SET_NULL)
+        .nullable()
 
     /** Model used to detect and embed this face (e.g. "buffalo_l"). */
     val faceModel = varchar("face_model", 128)

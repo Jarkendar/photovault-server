@@ -197,14 +197,17 @@ Two work queues per run:
 - [ ] `FACE_DET_THRESH` — calibrate on real photos (default: 0.5)
 - [ ] `FACE_MIN_PX` — calibrate minimum face size (default: 40 px)
 
-### Iteration 2 — Clustering + admin API labelling ☐
+### Iteration 2 — Clustering + admin API labelling ✅
 
-- [ ] **`cli/cluster_faces.py`** — DBSCAN on unassigned face vectors → `face_clusters` rows + `faces.cluster_id`.
-  Tune: `eps` parameter (cosine metric), `min_samples`.
-- [ ] **`db/tables/FaceClusters.kt`** — server-side table (`fcluster-uuid`, tag_id?, category_id?, representative_face_id, face_count, created_at).
-- [ ] **`metadata/FaceService.kt`** + **`routes/FaceRoutes.kt`** — admin API under `/v1/admin/face-clusters`.
-- [ ] **`dto/FaceDtos.kt`** — `FaceClusterDto`, `FaceDto`, `LabelClusterRequest`.
-- [ ] **`auth/JwtService.kt`** — admin role claim + `requireAdmin` guard in FaceRoutes.
+- [x] **`cli/cluster_faces.py`** — DBSCAN (cosine metric, `eps=0.4`, `min_samples=2`) on unassigned face vectors → `face_clusters` rows + `faces.cluster_id`.
+- [x] **`db/tables/FaceClusters.kt`** — server-side table (`fcluster-uuid`, tag_id?, category_id?, representative_face_id, face_count, created_at).
+- [x] **`faces/FaceService.kt`** + **`routes/FaceRoutes.kt`** — admin API under `/v1/admin/face-clusters`.
+- [x] **`dto/FaceDtos.kt`** — `FaceClusterDto`, `FaceDto`, `LabelClusterRequest`, `FaceClusterListResponse`, `FaceListResponse`.
+- [x] **`auth/AdminGuard.kt`** + **`auth/JwtService.kt`** — `role=admin` claim + `requireAdmin` guard in FaceRoutes (regular tokens get 403).
+- [x] **`requirements.txt` / `pyproject.toml`** — added `scikit-learn>=1.4.0`.
+- [x] **`db.py`** — `fetch_unclustered_faces`, `insert_face_cluster`, `update_faces_cluster_id`.
+- [x] **`tests/test_clustering.py`** — 6 unit tests for DBSCAN clustering logic (no DB / model needed).
+- [x] **`FaceRoutesTest.kt`** — 12 server integration tests (auth guard, list, faces-in-cluster, label writes source=auto, denied not overwritten, delete).
 - [ ] **`contract/openapi.yaml` + `contract/api.md`** — PR with admin face endpoints (separate from mobile client scope).
 
 ### Iteration 3 — Nightly identity matching ☐

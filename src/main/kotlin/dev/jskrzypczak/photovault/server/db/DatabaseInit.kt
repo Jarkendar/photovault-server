@@ -2,6 +2,7 @@ package dev.jskrzypczak.photovault.server.db
 
 import at.favre.lib.crypto.bcrypt.BCrypt
 import dev.jskrzypczak.photovault.server.db.tables.Categories
+import dev.jskrzypczak.photovault.server.db.tables.FaceClusters
 import dev.jskrzypczak.photovault.server.db.tables.Faces
 import dev.jskrzypczak.photovault.server.db.tables.Labels
 import dev.jskrzypczak.photovault.server.db.tables.PhotoCategories
@@ -26,7 +27,7 @@ private val allTables = arrayOf(
     Users, Photos, Tags, Categories, Labels,
     PhotoTags, PhotoCategories, PhotoLabels,
     Uploads, RefreshTokens,
-    Faces
+    FaceClusters, Faces
 )
 
 fun initDatabase() {
