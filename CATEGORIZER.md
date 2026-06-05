@@ -210,11 +210,13 @@ Two work queues per run:
 - [x] **`FaceRoutesTest.kt`** — 12 server integration tests (auth guard, list, faces-in-cluster, label writes source=auto, denied not overwritten, delete).
 - [ ] **`contract/openapi.yaml` + `contract/api.md`** — PR with admin face endpoints (separate from mobile client scope).
 
-### Iteration 3 — Nightly identity matching ☐
+### Iteration 3 — Nightly identity matching ✅
 
-- [ ] **`cli/categorize.py`** — build identity prototypes from labelled clusters; cosine match new faces → `write.assign_auto`.
-  Tune: `FACE_MATCH_THRESHOLD` (default: 0.50); handle multi-cluster per person (average across all clusters).
-- [ ] Extended summary log: `faces detected: N, faces matched: M, new unlabeled faces: K`.
+- [x] **`face_match.py`** — `build_identity_prototypes()` (mean + L2 norm per person, multi-cluster aware) and `match_faces()` (cosine dot product against prototype matrix, best-match above threshold).
+- [x] **`db.py`** — `fetch_labelled_cluster_faces()` returning `(face_id, label_id, kind)` for all faces in labelled clusters.
+- [x] **`cli/categorize.py`** — loads identity prototypes before the work loop; matches each newly-detected face; writes `source='auto'` identity assignments via `assign_auto()` (denied/manual precedence preserved). `_process_photo` now returns 6-tuple including `faces_matched`.
+- [x] Extended summary log: `faces detected: N, faces matched: M, new unlabeled faces: K`.
+- [x] **`tests/test_face_matching.py`** — 14 pure unit tests for `build_identity_prototypes` and `match_faces` (no DB / model needed).
 
 ---
 
