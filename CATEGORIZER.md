@@ -22,7 +22,7 @@ nightly Pi run from colliding with an on-demand PC session. Trigger: `docker run
 | # | Phase | Scope | Status |
 |---|---|---|---|
 | 0 | Schema + state model | Additive Exposed columns; `source`-aware read/write paths in the Ktor server | ✅ |
-| 1 | CLIP visual pipeline | Embedder export, vector store, PL→EN prompts, nightly Pi job, add-label backfill | ☐ |
+| 1 | CLIP visual pipeline | Embedder, vector store, PL→EN prompts, nightly Pi job, bulk embed, add-label backfill, systemd timer | ✅ |
 | 2 | People | Face model + separate face store, identity clustering, family tags | ☐ |
 | 3 | Events | Vacation / trip heuristic from `captured_at` + `lat`/`lng` (no network) | ☐ |
 
@@ -113,63 +113,56 @@ It must become `source`-aware **before** Phase 1 writes anything.
 
 ### Embedder
 
-- [ ] Pick one embedder, same model on both machines:
-  - **MobileCLIP-S2** (Apple, ~20 MB ONNX) — Pi-friendly, good accuracy/speed tradeoff
-  - **OpenCLIP / SigLIP ViT-B/32** — slightly heavier but wider community support; SigLIP handles multilingual prompts better
-  - Export to **ONNX** (identical graph, preprocessing, and floating-point precision on PC and Pi — critical for a shared vector space)
-- [ ] Pin preprocessing: `center_crop(224)`, `normalize([0.48..],[0.26..])`, `float32`.
-  Document the exact values in the job's `README` / config file.
+- [x] Pick one embedder, same model on both machines:
+  - **MobileCLIP-S2** via `open_clip_torch`, pretrained weights `datacompdr`, **fp32**.
+  - ONNX export deferred as a future optimisation; Pi is fast enough for the delta.
+- [x] Pin preprocessing: inference transform bundled with `open_clip` (center-crop 224 + normalise,
+  no augmentation, fp32). Values logged at INFO level on startup.
 
 ### Vector store
 
-- [ ] File-based store (`.npy` or `hnswlib` index), keyed by `photo.id` (`photo-<uuid>` strings).
-  **No pgvector / Qdrant** — both would require a 24/7 service and break the ephemeral model.
-- [ ] Store file lives on a shared volume (or is `rsync`-ed PC↔Pi over Tailscale before the nightly run).
-  Nightly job self-heals: re-embeds any photo missing from the store (safe overwrite); prunes vectors
-  for photo ids that no longer exist in Postgres (orphan cleanup).
-- [ ] Store is **separate per model version** (filename carries model id). Bumping the model = full re-embed pass.
+- [x] File-based `.npz` store keyed by `photo.id` (`photo-<uuid>` strings). No pgvector/Qdrant.
+- [x] Store lives on a shared volume. Nightly job self-heals (re-embeds missing vectors) and prunes
+  orphans (vectors for deleted photos). Implemented in `categorize.py`.
+- [x] Store is **separate per model version** — filename carries `MODEL_ID`
+  (`mobileclip-s2-datacompdr.npz`). Bumping the model = full re-embed pass via `bulk_embed.py`.
 
 ### PL→EN prompt mapping
 
-- [ ] Polish tag/category names → English prompt(s) for the CLIP text encoder.
-  Options (pick one or combine):
-  - **Static mapping file** (`prompts.yaml`) — `"#morze": ["sea", "ocean", "seashore"]`. Fast, explicit, no runtime cost.
-  - **Multilingual SigLIP** — text encoder accepts Polish directly; eliminates the mapping table.
-- [ ] Decide and document prompt template (e.g. `"a photo of {label}"`).
+- [x] Static mapping file `prompts.yaml` — `"#morze": ["sea", "ocean", "seashore"]`. Fast,
+  explicit, no runtime cost. Missing entries are logged as WARNING.
+- [x] Prompt template `"a photo of {term}"` (multi-term → averaged prototype).
 
 ### RTX on-demand scripts
 
-- [ ] `bulk_embed.py` — connect to Postgres over Tailscale, load all photos missing from the vector
-  store (`Photos.embedded_at IS NULL OR Photos.embedded_at < model_updated_at`), download
-  `medium.jpg` via storage root, compute CLIP embedding, write to store, update `photos.embedded_at`
-  + `photos.embedding_model`. Batch size tuned to 8 GB VRAM.
-- [ ] `add_label.py <category-or-tag-id>` — sets `rolled_out = false`, triggers library-wide
-  k-NN / zero-shot scoring pass for that single label, then sets `rolled_out = true`.
-  Inserts `source = auto` rows only where no row exists; respects `denied` tombstones.
+- [x] `bulk_embed.py` — queries `Photos WHERE embedded_at IS NULL OR embedding_model != MODEL_ID`,
+  downloads `medium.jpg` via storage root, encodes in batches of 256, writes to store,
+  updates `photos.embedded_at` + `photos.embedding_model`. Resumable (checkpointed per chunk).
+- [x] `add_label.py <category-or-tag-id>` — sets `rolled_out = false`, scores all cached vectors
+  against the label's text prototype, writes `source = auto` rows (respects `denied` tombstones),
+  sets `rolled_out = true`. Guard: requires `auto_enabled = true` and a `prompts.yaml` entry.
 
 ### Nightly Pi oneshot
 
 Two work queues per run:
 
-1. **Delta queue** — `SELECT id, medium_path FROM photos WHERE processing_status = 'pending_categorization'`
-2. **Backfill queue** — `SELECT id FROM categories WHERE rolled_out = false` (already covered above, but Pi can also pick up small backfills)
+1. **Delta queue** — `photos WHERE processing_status = 'pending_categorization'`
+2. **Self-heal queue** — `photos WHERE processing_status = 'ready'` whose vector is absent from
+   the store (lost due to store reset or photo deletion + re-upload).
 
-- [ ] Container entry point: `python categorize.py` (or equivalent), exits with code 0 when done.
-- [ ] **Lock file** (`/tmp/photovault-categorize.lock`) acquired at startup, released on exit.
-  If lock exists → another run is active → exit 0 immediately (do not error the timer).
-- [ ] After scoring, write `auto` rows to `photo_tags` / `photo_categories` for tags/categories
-  where `auto_enabled = true`, respecting the `source` precedence rules (skip pairs with existing
-  `manual` or `denied` rows).
-- [ ] Flip `photos.processing_status` from `pending_categorization` → `ready` in the same transaction
-  as the junction inserts.
-- [ ] Log a summary line: `photos processed: N, tags inserted: M, categories inserted: K, denied skipped: D`.
+- [x] Container entry point: `python -m photovault_categorizer.cli.categorize`, exits 0 when done.
+- [x] **Lock file** (`/tmp/photovault-categorize.lock`) — shared by all CLI entry points via
+  `lock.py`; exit 0 immediately if held (does not error the timer).
+- [x] Writes `source = auto` rows respecting `manual`/`denied` precedence; flips
+  `processing_status` to `ready` and updates `embedded_at`/`embedding_model` in one transaction.
+- [x] Summary log: `photos processed: N, tags inserted: M, categories inserted: K, denied skipped: D`.
 
 ### Trigger
 
-- [ ] `systemd.timer` on the Pi — daily at e.g. 03:00, calls `docker run --rm photovault-categorizer`.
-  Or n8n flow → same `docker run --rm`.
-- [ ] Env vars passed at runtime (same pattern as server): `DB_URL`, `DB_USER`, `DB_PASSWORD`,
-  `PHOTO_STORAGE_ROOT`. Reuse `.env` / Docker secrets already in use by the server.
+- [x] `deploy/photovault-categorizer.service` + `deploy/photovault-categorizer.timer` —
+  systemd unit + timer (daily at 03:00, `Persistent=true`). See `categorizer/deploy/README.md`.
+- [x] Env vars at runtime: `DB_URL`, `DB_USER`, `DB_PASSWORD`, `PHOTO_STORAGE_ROOT`,
+  `VECTOR_STORE_DIR`. n8n alternative documented in `deploy/README.md`.
 
 ---
 
