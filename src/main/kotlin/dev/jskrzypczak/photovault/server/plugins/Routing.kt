@@ -1,12 +1,14 @@
 package dev.jskrzypczak.photovault.server.plugins
 
 import dev.jskrzypczak.photovault.server.auth.AuthService
+import dev.jskrzypczak.photovault.server.categorizer.CategorizerService
 import dev.jskrzypczak.photovault.server.faces.FaceService
 import dev.jskrzypczak.photovault.server.metadata.CategoryService
 import dev.jskrzypczak.photovault.server.metadata.LabelService
 import dev.jskrzypczak.photovault.server.metadata.TagService
 import dev.jskrzypczak.photovault.server.photos.PhotoService
 import dev.jskrzypczak.photovault.server.routes.authRoutes
+import dev.jskrzypczak.photovault.server.routes.categorizerRoutes
 import dev.jskrzypczak.photovault.server.routes.categoryRoutes
 import dev.jskrzypczak.photovault.server.routes.faceRoutes
 import dev.jskrzypczak.photovault.server.routes.healthRoutes
@@ -32,6 +34,7 @@ fun Application.configureRouting(
     uploadService: UploadService,
     userService: UserService,
     faceService: FaceService,
+    categorizerService: CategorizerService,
 ) {
     routing {
         route("/v1") {
@@ -44,6 +47,7 @@ fun Application.configureRouting(
             uploadRoutes(uploadService)
             userRoutes(userService)
             faceRoutes(faceService)
+            categorizerRoutes(categorizerService)
         }
     }
 }

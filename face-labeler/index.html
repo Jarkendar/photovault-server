@@ -378,17 +378,72 @@
       z-index: 200;
       cursor: zoom-out;
     }
-    #lightbox-img {
+    #lightbox-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
       max-width: 95vw;
-      max-height: 95vh;
-      border-radius: 6px;
-      object-fit: contain;
       cursor: default;
     }
+    #lightbox-img {
+      max-width: 100%;
+      max-height: calc(92vh - 50px);
+      border-radius: 6px;
+      object-fit: contain;
+    }
+    #lightbox-footer {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(20,20,20,.92);
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      padding: 7px 12px;
+    }
+    .lightbox-status-badge {
+      font-size: 12px;
+      padding: 2px 9px;
+      border-radius: 10px;
+      background: #222;
+      color: #888;
+    }
+    .lightbox-status-badge[data-status="ready"]                   { background: #1a3a1a; color: #4caf50; }
+    .lightbox-status-badge[data-status="pending_categorization"]  { background: #3a2a1a; color: #ff9800; }
 
     /* ── Photos tab ────────────────────────────────────────────────────────── */
     #screen-photos { padding: 18px; }
-    #screen-photos h2 { font-size: 1rem; margin-bottom: 12px; }
+    #screen-photos h2 { font-size: 1rem; margin-bottom: 10px; }
+    .cat-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .cat-progress-wrap { display: flex; align-items: center; gap: 8px; }
+    .cat-progress-bar-wrap {
+      width: 140px;
+      height: 5px;
+      background: #2a2a2a;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .cat-progress-bar { height: 100%; background: #4a9eff; border-radius: 3px; transition: width 0.4s; }
+    .cat-status-text  { font-size: 12px; color: #888; }
+    .filter-chips { display: flex; gap: 6px; margin-bottom: 12px; }
+    .filter-chip {
+      padding: 4px 12px;
+      border-radius: 14px;
+      border: 1px solid #333;
+      background: #1c1c1c;
+      color: #777;
+      font-size: 12px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .filter-chip:hover  { border-color: #4a4a4a; color: #ccc; }
+    .filter-chip.active { border-color: #4a9eff; color: #4a9eff; background: #162d4a; }
   </style>
 </head>
 <body>
@@ -433,7 +488,13 @@
 
 <!-- ── Lightbox ────────────────────────────────────────────────────────────── -->
 <div id="lightbox-overlay" hidden>
-  <img id="lightbox-img" alt="">
+  <div id="lightbox-box">
+    <img id="lightbox-img" alt="">
+    <div id="lightbox-footer">
+      <span id="lightbox-status-badge" class="lightbox-status-badge"></span>
+      <button id="lightbox-recategorize-btn" class="btn-ghost" style="font-size:12px;padding:5px 10px">Re-categorize</button>
+    </div>
+  </div>
 </div>
 
 <!-- ── Modal ──────────────────────────────────────────────────────────────── -->
@@ -482,6 +543,9 @@ const S = {
   libOpenCatId:    null,
   libPhotosTagCache: new Map(),
   libPhotosCatCache: new Map(),
+  // photos tab state
+  photosFilter:    'all',   // 'all' | 'pending' | 'ready'
+  catPollInterval: null,
 };
 
 // ── Session ────────────────────────────────────────────────────────────────────
@@ -577,6 +641,7 @@ document.getElementById('login-form').addEventListener('submit', async e => {
 function logout() {
   clearSession();
   S.token = '';
+  stopCatPolling();
   document.getElementById('screen-main').hidden = true;
   document.getElementById('screen-login').hidden = false;
   document.getElementById('inp-pass').value = '';
@@ -1382,19 +1447,72 @@ function buildNewCatForm() {
 // ── Photos view ────────────────────────────────────────────────────────────────
 async function renderPhotos() {
   const el = document.getElementById('screen-photos');
-  el.innerHTML = '<h2>All Photos</h2><div class="lib-thumb-grid" id="photos-grid"><span class="spinner"></span></div>';
-  const grid = el.querySelector('#photos-grid');
+  el.innerHTML = `
+    <h2>All Photos</h2>
+    <div class="cat-toolbar" id="cat-toolbar">
+      <button id="btn-run-cat" class="btn-primary" style="font-size:13px;padding:7px 13px">Run categorizer</button>
+      <div class="cat-progress-wrap" id="cat-progress-wrap" style="display:none">
+        <div class="cat-progress-bar-wrap"><div class="cat-progress-bar" id="cat-progress-bar" style="width:0%"></div></div>
+        <span id="cat-status-text" class="cat-status-text"></span>
+      </div>
+    </div>
+    <div class="filter-chips" id="photos-filter-chips">
+      <span class="filter-chip ${S.photosFilter==='all'?'active':''}"     data-filter="all">All</span>
+      <span class="filter-chip ${S.photosFilter==='pending'?'active':''}" data-filter="pending">Pending</span>
+      <span class="filter-chip ${S.photosFilter==='ready'?'active':''}"   data-filter="ready">Ready</span>
+    </div>
+    <div class="lib-thumb-grid" id="photos-grid"><span class="spinner"></span></div>
+  `;
 
+  el.querySelectorAll('.filter-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      S.photosFilter = chip.dataset.filter;
+      el.querySelectorAll('.filter-chip').forEach(c => c.classList.toggle('active', c.dataset.filter === S.photosFilter));
+      loadPhotosGrid();
+    });
+  });
+
+  document.getElementById('btn-run-cat').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-run-cat');
+    btn.disabled = true;
+    try {
+      await api('POST', '/admin/categorizer/run');
+      startCatPolling();
+    } catch(err) {
+      if (err.message.startsWith('409')) {
+        alert('Categorizer not configured — set CATEGORIZER_CMD on the server.');
+      } else {
+        alert(`Failed to start: ${err.message}`);
+      }
+      btn.disabled = false;
+    }
+  });
+
+  // Fetch initial status (non-blocking)
+  api('GET', '/admin/categorizer/status')
+    .then(st => { renderCatToolbar(st); if (st.running) startCatPolling(); })
+    .catch(() => {});
+
+  await loadPhotosGrid();
+}
+
+async function loadPhotosGrid() {
+  const el   = document.getElementById('screen-photos');
+  const grid = document.getElementById('photos-grid');
+  if (!grid) return;
+  grid.innerHTML = '<span class="spinner"></span>';
+  el.querySelector('.lib-load-more')?.remove();
+
+  const statusQs = S.photosFilter === 'pending' ? '&processingStatus=pending_categorization'
+                 : S.photosFilter === 'ready'   ? '&processingStatus=ready' : '';
   try {
-    const data = await api('GET', '/photos?limit=50');
+    const data = await api('GET', `/photos?limit=50${statusQs}`);
     grid.innerHTML = '';
     if (!data.items.length) {
-      grid.textContent = 'No photos yet.';
-      grid.style.color = '#555';
+      grid.innerHTML = '<span style="color:#555">No photos here yet.</span>';
       return;
     }
     appendThumbs(grid, data.items);
-
     if (data.nextCursor) {
       const loadMore = document.createElement('button');
       loadMore.className   = 'btn-ghost lib-load-more';
@@ -1402,7 +1520,7 @@ async function renderPhotos() {
       let cursor = data.nextCursor;
       loadMore.addEventListener('click', async () => {
         loadMore.disabled = true;
-        const more = await api('GET', `/photos?limit=50&cursor=${encodeURIComponent(cursor)}`);
+        const more = await api('GET', `/photos?limit=50${statusQs}&cursor=${encodeURIComponent(cursor)}`);
         appendThumbs(grid, more.items);
         if (more.nextCursor) { cursor = more.nextCursor; loadMore.disabled = false; }
         else loadMore.remove();
@@ -1412,6 +1530,50 @@ async function renderPhotos() {
   } catch(err) {
     grid.innerHTML = `<span style="color:#ff6b6b">${err.message}</span>`;
   }
+}
+
+function renderCatToolbar(st) {
+  const btn         = document.getElementById('btn-run-cat');
+  const progressWrap = document.getElementById('cat-progress-wrap');
+  const bar         = document.getElementById('cat-progress-bar');
+  const statusText  = document.getElementById('cat-status-text');
+  if (!btn) return;
+  btn.disabled    = st.running;
+  btn.textContent = st.running ? 'Running…' : 'Run categorizer';
+  const hasRun = st.lastStartedAt && st.batchTotal > 0;
+  if (st.running || hasRun) {
+    progressWrap.style.display = '';
+    const processed = Math.max(0, st.batchTotal - Number(st.pendingCount));
+    const pct = st.batchTotal > 0 ? Math.round(processed / st.batchTotal * 100) : 100;
+    bar.style.width = pct + '%';
+    if (st.running) {
+      statusText.textContent = `${processed} / ${st.batchTotal} (${pct}%)`;
+    } else {
+      statusText.textContent = st.lastExitCode === 0
+        ? `Done — processed ${st.batchTotal} photo${st.batchTotal !== 1 ? 's' : ''}`
+        : `Finished with exit code ${st.lastExitCode}`;
+    }
+  } else {
+    progressWrap.style.display = 'none';
+  }
+}
+
+function startCatPolling() {
+  if (S.catPollInterval) return;
+  S.catPollInterval = setInterval(async () => {
+    try {
+      const st = await api('GET', '/admin/categorizer/status');
+      if (S.currentTab === 'photos') renderCatToolbar(st);
+      if (!st.running) {
+        stopCatPolling();
+        if (S.currentTab === 'photos') loadPhotosGrid();
+      }
+    } catch(e) { stopCatPolling(); }
+  }, 2000);
+}
+
+function stopCatPolling() {
+  if (S.catPollInterval) { clearInterval(S.catPollInterval); S.catPollInterval = null; }
 }
 
 // ── Library photo panel ────────────────────────────────────────────────────────
@@ -1462,18 +1624,25 @@ function appendThumbs(grid, items) {
     authImageUrl(`${S.serverUrl}/v1/photos/${photo.id}/thumbnail`)
       .then(url => { img.src = url; })
       .catch(() => { /* leave placeholder background on 404/423/etc */ });
-    img.addEventListener('click', () => openLightbox(photo.id));
+    img.addEventListener('click', () => openLightbox(photo));
     grid.appendChild(img);
   }
 }
 
 // ── Lightbox ───────────────────────────────────────────────────────────────────
-function openLightbox(photoId) {
+function openLightbox(photo) {
   const overlay = document.getElementById('lightbox-overlay');
   const imgEl   = document.getElementById('lightbox-img');
+  const badge   = document.getElementById('lightbox-status-badge');
+  const reBtn   = document.getElementById('lightbox-recategorize-btn');
   imgEl.src      = '';
   overlay.hidden = false;
-  authImageUrl(`${S.serverUrl}/v1/photos/${photoId}/medium`)
+  const st = photo.processingStatus || '';
+  badge.textContent  = st === 'pending_categorization' ? 'pending' : st || '?';
+  badge.dataset.status = st;
+  reBtn.dataset.photoId = photo.id;
+  reBtn.disabled = false;
+  authImageUrl(`${S.serverUrl}/v1/photos/${photo.id}/medium`)
     .then(url => { if (!overlay.hidden) imgEl.src = url; })
     .catch(() => { overlay.hidden = true; });
 }
@@ -1484,8 +1653,24 @@ function closeLightbox() {
 }
 
 document.getElementById('lightbox-overlay').addEventListener('click', closeLightbox);
-// Prevent clicking the image itself from closing the lightbox
-document.getElementById('lightbox-img').addEventListener('click', e => e.stopPropagation());
+// Prevent clicking the lightbox box (image + footer) from closing the overlay
+document.getElementById('lightbox-box').addEventListener('click', e => e.stopPropagation());
+
+document.getElementById('lightbox-recategorize-btn').addEventListener('click', async () => {
+  const btn     = document.getElementById('lightbox-recategorize-btn');
+  const photoId = btn.dataset.photoId;
+  btn.disabled  = true;
+  try {
+    await api('POST', `/admin/categorizer/recategorize/${photoId}`);
+    await api('POST', '/admin/categorizer/run');
+    closeLightbox();
+    startCatPolling();
+    if (S.currentTab === 'photos') loadPhotosGrid();
+  } catch(err) {
+    alert(`Re-categorize failed: ${err.message}`);
+    btn.disabled = false;
+  }
+});
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────────
 restoreSession();

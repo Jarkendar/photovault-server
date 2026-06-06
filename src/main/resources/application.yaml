@@ -9,6 +9,9 @@ photovault:
   version: "1.0.0"
   storage:
     root: ${PHOTO_STORAGE_ROOT:./data/photos}
+  categorizer:
+    command: ${CATEGORIZER_CMD:}
+    workdir: ${CATEGORIZER_WORKDIR:./categorizer}
 
 db:
   url: ${DB_URL:jdbc:postgresql://localhost:5432/photovault}
