@@ -346,6 +346,7 @@
       object-fit: cover;
       background: #252525;
       display: block;
+      cursor: zoom-in;
     }
     .lib-load-more { margin-top: 10px; padding: 6px 14px; font-size: 13px; }
 
@@ -365,6 +366,29 @@
     .lib-error { color: #ff6b6b; font-size: 12px; margin-top: 4px; }
     .lib-auto-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; }
     .lib-auto-toggle input[type=checkbox] { cursor: pointer; }
+
+    /* ── Lightbox ──────────────────────────────────────────────────────────── */
+    #lightbox-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.88);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      cursor: zoom-out;
+    }
+    #lightbox-img {
+      max-width: 95vw;
+      max-height: 95vh;
+      border-radius: 6px;
+      object-fit: contain;
+      cursor: default;
+    }
+
+    /* ── Photos tab ────────────────────────────────────────────────────────── */
+    #screen-photos { padding: 18px; }
+    #screen-photos h2 { font-size: 1rem; margin-bottom: 12px; }
   </style>
 </head>
 <body>
@@ -387,6 +411,7 @@
     <h1>PhotoVault</h1>
     <button class="nav-tab active" id="tab-clusters" onclick="switchTab('clusters')">Clusters</button>
     <button class="nav-tab"        id="tab-library"  onclick="switchTab('library')">Library</button>
+    <button class="nav-tab"        id="tab-photos"   onclick="switchTab('photos')">Photos</button>
     <span id="cluster-count"></span>
     <button id="btn-toggle-all" class="btn-ghost">Show labeled</button>
     <button id="btn-logout" class="btn-ghost">Logout</button>
@@ -403,6 +428,12 @@
 
   <div id="clusters-grid"></div>
   <div id="screen-library" hidden></div>
+  <div id="screen-photos"  hidden></div>
+</div>
+
+<!-- ── Lightbox ────────────────────────────────────────────────────────────── -->
+<div id="lightbox-overlay" hidden>
+  <img id="lightbox-img" alt="">
 </div>
 
 <!-- ── Modal ──────────────────────────────────────────────────────────────── -->
@@ -478,17 +509,28 @@ async function api(method, path, body) {
 }
 
 // ── Image helpers ──────────────────────────────────────────────────────────────
-function loadImg(url) {
-  if (!S.imgCache.has(url)) {
-    S.imgCache.set(url, new Promise((ok, fail) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload  = () => ok(img);
-      img.onerror = fail;
-      img.src = url;
-    }));
+// Fetch an image with the bearer token and cache the resulting blob: URL.
+// blob: URLs are same-origin, so canvas.drawImage() never taints the canvas.
+async function authImageUrl(fullUrl) {
+  if (!S.imgCache.has(fullUrl)) {
+    S.imgCache.set(fullUrl, (async () => {
+      const res = await fetch(fullUrl, { headers: { Authorization: `Bearer ${S.token}` } });
+      if (res.status === 401) { logout(); throw new Error('Session expired'); }
+      if (!res.ok) throw new Error(`${res.status}`);
+      return URL.createObjectURL(await res.blob());
+    })());
   }
-  return S.imgCache.get(url);
+  return S.imgCache.get(fullUrl);
+}
+
+async function loadImg(url) {
+  const blobUrl = await authImageUrl(url);
+  return new Promise((ok, fail) => {
+    const img = new Image();
+    img.onload  = () => ok(img);
+    img.onerror = fail;
+    img.src = blobUrl;
+  });
 }
 
 async function drawCrop(canvas, photoId, bx, by, bw, bh) {
@@ -545,14 +587,19 @@ document.getElementById('btn-logout').addEventListener('click', logout);
 function switchTab(tab) {
   S.currentTab = tab;
   const isCluster = tab === 'clusters';
+  const isLibrary = tab === 'library';
+  const isPhotos  = tab === 'photos';
   document.getElementById('clusters-grid').hidden    = !isCluster;
-  document.getElementById('screen-library').hidden   = isCluster;
+  document.getElementById('screen-library').hidden   = !isLibrary;
+  document.getElementById('screen-photos').hidden    = !isPhotos;
   document.getElementById('btn-toggle-all').hidden   = !isCluster;
   document.getElementById('cluster-count').hidden    = !isCluster;
   document.getElementById('bulk-bar').classList.toggle('visible', isCluster && S.selectedIds.size > 0);
   document.getElementById('tab-clusters').classList.toggle('active', isCluster);
-  document.getElementById('tab-library').classList.toggle('active', !isCluster);
-  if (!isCluster) renderLibrary();
+  document.getElementById('tab-library').classList.toggle('active', isLibrary);
+  document.getElementById('tab-photos').classList.toggle('active', isPhotos);
+  if (isLibrary) renderLibrary();
+  if (isPhotos)  renderPhotos();
 }
 
 // ── Main screen ────────────────────────────────────────────────────────────────
@@ -963,7 +1010,10 @@ document.getElementById('modal-overlay').addEventListener('click', e => {
   if (e.target.id === 'modal-overlay') closeModal();
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeModal();
+  if (e.key === 'Escape') {
+    if (!document.getElementById('lightbox-overlay').hidden) closeLightbox();
+    else closeModal();
+  }
   if (e.key === 'Enter' && !document.getElementById('modal-overlay').hidden) {
     const btn = document.getElementById('btn-modal-label');
     if (!btn.disabled) btn.click();
@@ -1329,6 +1379,41 @@ function buildNewCatForm() {
   return form;
 }
 
+// ── Photos view ────────────────────────────────────────────────────────────────
+async function renderPhotos() {
+  const el = document.getElementById('screen-photos');
+  el.innerHTML = '<h2>All Photos</h2><div class="lib-thumb-grid" id="photos-grid"><span class="spinner"></span></div>';
+  const grid = el.querySelector('#photos-grid');
+
+  try {
+    const data = await api('GET', '/photos?limit=50');
+    grid.innerHTML = '';
+    if (!data.items.length) {
+      grid.textContent = 'No photos yet.';
+      grid.style.color = '#555';
+      return;
+    }
+    appendThumbs(grid, data.items);
+
+    if (data.nextCursor) {
+      const loadMore = document.createElement('button');
+      loadMore.className   = 'btn-ghost lib-load-more';
+      loadMore.textContent = 'Load more…';
+      let cursor = data.nextCursor;
+      loadMore.addEventListener('click', async () => {
+        loadMore.disabled = true;
+        const more = await api('GET', `/photos?limit=50&cursor=${encodeURIComponent(cursor)}`);
+        appendThumbs(grid, more.items);
+        if (more.nextCursor) { cursor = more.nextCursor; loadMore.disabled = false; }
+        else loadMore.remove();
+      });
+      el.appendChild(loadMore);
+    }
+  } catch(err) {
+    grid.innerHTML = `<span style="color:#ff6b6b">${err.message}</span>`;
+  }
+}
+
 // ── Library photo panel ────────────────────────────────────────────────────────
 async function toggleLibPhotos(item, kind, id, name) {
   const existing = item.nextElementSibling;
@@ -1371,14 +1456,36 @@ async function toggleLibPhotos(item, kind, id, name) {
 function appendThumbs(grid, items) {
   for (const photo of items) {
     const img = document.createElement('img');
-    img.className   = 'lib-thumb';
-    img.src         = `${S.serverUrl}/v1/photos/${photo.id}/thumbnail`;
-    img.alt         = photo.name || photo.id;
-    img.title       = photo.name || photo.id;
-    img.crossOrigin = 'anonymous';
+    img.className = 'lib-thumb';
+    img.alt       = photo.name || photo.id;
+    img.title     = photo.name || photo.id;
+    authImageUrl(`${S.serverUrl}/v1/photos/${photo.id}/thumbnail`)
+      .then(url => { img.src = url; })
+      .catch(() => { /* leave placeholder background on 404/423/etc */ });
+    img.addEventListener('click', () => openLightbox(photo.id));
     grid.appendChild(img);
   }
 }
+
+// ── Lightbox ───────────────────────────────────────────────────────────────────
+function openLightbox(photoId) {
+  const overlay = document.getElementById('lightbox-overlay');
+  const imgEl   = document.getElementById('lightbox-img');
+  imgEl.src      = '';
+  overlay.hidden = false;
+  authImageUrl(`${S.serverUrl}/v1/photos/${photoId}/medium`)
+    .then(url => { if (!overlay.hidden) imgEl.src = url; })
+    .catch(() => { overlay.hidden = true; });
+}
+
+function closeLightbox() {
+  document.getElementById('lightbox-overlay').hidden = true;
+  document.getElementById('lightbox-img').src = '';
+}
+
+document.getElementById('lightbox-overlay').addEventListener('click', closeLightbox);
+// Prevent clicking the image itself from closing the lightbox
+document.getElementById('lightbox-img').addEventListener('click', e => e.stopPropagation());
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────────
 restoreSession();
