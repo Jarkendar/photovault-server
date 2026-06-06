@@ -6,6 +6,8 @@
   <title>PhotoVault — Face Labeler</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    /* Prevent display:flex/grid rules from overriding the HTML hidden attribute */
+    [hidden] { display: none !important; }
 
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -15,8 +17,7 @@
     }
 
     /* ── Inputs & buttons ──────────────────────────────────────────────── */
-    input[type=text], input[type=password] {
-      width: 100%;
+    input[type=text], input[type=password], input[type=color] {
       padding: 10px 12px;
       background: #222;
       border: 1px solid #444;
@@ -24,6 +25,8 @@
       color: #eee;
       font-size: 14px;
     }
+    input[type=text], input[type=password] { width: 100%; }
+    input[type=color] { width: 44px; height: 38px; padding: 2px 4px; cursor: pointer; }
     input:focus { outline: none; border-color: #4a9eff; }
 
     button {
@@ -42,6 +45,8 @@
     .btn-danger:not(:disabled):hover  { background: #c62828; }
     .btn-ghost   { background: #2e2e2e; color: #ccc; }
     .btn-ghost:not(:disabled):hover   { background: #3a3a3a; }
+    .btn-warn    { background: #f57c00; color: #fff; }
+    .btn-warn:not(:disabled):hover    { background: #e65100; }
 
     /* ── Login ─────────────────────────────────────────────────────────── */
     #screen-login {
@@ -60,17 +65,45 @@
     header {
       display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 12px 20px;
+      gap: 8px;
+      padding: 10px 16px;
       background: #1a1a1a;
       border-bottom: 1px solid #2a2a2a;
       position: sticky;
       top: 0;
       z-index: 10;
+      flex-wrap: wrap;
     }
-    header h1 { font-size: 1rem; flex: 1; }
-    #cluster-count { color: #777; font-size: 13px; }
+    header h1 { font-size: 1rem; margin-right: 4px; }
+    #cluster-count { color: #777; font-size: 13px; flex: 1; }
     header button { padding: 7px 13px; font-size: 13px; }
+
+    .nav-tab {
+      padding: 7px 14px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      background: transparent;
+      color: #888;
+      transition: background 0.1s, color 0.1s;
+    }
+    .nav-tab:hover  { background: #2a2a2a; color: #ccc; }
+    .nav-tab.active { background: #2a2a2a; color: #4a9eff; }
+
+    /* ── Bulk action bar ───────────────────────────────────────────────── */
+    #bulk-bar {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: #1e2a38;
+      border-bottom: 1px solid #2a3a4a;
+    }
+    #bulk-bar.visible { display: flex; }
+    #bulk-count { font-size: 13px; color: #aac; flex: 1; }
+    #bulk-bar button { padding: 6px 12px; font-size: 13px; }
 
     /* ── Cluster grid ──────────────────────────────────────────────────── */
     #clusters-grid {
@@ -81,13 +114,16 @@
     }
     .cluster-card {
       background: #1c1c1c;
-      border: 1px solid #2e2e2e;
+      border: 2px solid #2e2e2e;
       border-radius: 10px;
       overflow: hidden;
       cursor: default;
       transition: border-color 0.15s;
+      position: relative;
     }
-    .cluster-card:hover { border-color: #4a4a4a; }
+    .cluster-card:hover     { border-color: #4a4a4a; }
+    .cluster-card:focus     { outline: none; border-color: #4a9eff; }
+    .cluster-card.selected  { border-color: #4a9eff; background: #1a2636; }
     .cluster-canvas {
       display: block;
       width: 100%;
@@ -97,8 +133,27 @@
     .cluster-info { padding: 9px 12px 4px; }
     .cluster-face-count { font-size: 12px; color: #888; }
     .cluster-assigned   { font-size: 12px; color: #4a9eff; margin-top: 3px; }
-    .cluster-actions    { display: flex; gap: 6px; padding: 8px 12px 11px; }
-    .cluster-actions button { flex: 1; padding: 6px 8px; font-size: 12px; }
+    .cluster-actions    { display: flex; gap: 6px; padding: 8px 12px 11px; flex-wrap: wrap; }
+    .cluster-actions button { flex: 1; padding: 6px 8px; font-size: 12px; min-width: 60px; }
+
+    .cluster-checkbox {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      border: 2px solid #666;
+      background: #111;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      user-select: none;
+      z-index: 2;
+    }
+    .cluster-card.selected .cluster-checkbox { background: #4a9eff; border-color: #4a9eff; color: #fff; }
 
     #empty-msg, #loading-msg {
       grid-column: 1 / -1;
@@ -134,7 +189,7 @@
       border: 1px solid #333;
       border-radius: 12px;
       width: 90vw;
-      max-width: 820px;
+      max-width: 860px;
       max-height: 92vh;
       display: flex;
       flex-direction: column;
@@ -149,6 +204,7 @@
     }
     #modal-header h2 { font-size: 0.95rem; flex: 1; }
     #modal-face-count { font-size: 12px; color: #777; }
+    #modal-remove-faces-btn { padding: 5px 10px; font-size: 12px; }
 
     #faces-grid {
       display: flex;
@@ -159,25 +215,53 @@
       max-height: 260px;
       flex-shrink: 0;
     }
+    .face-canvas-wrap {
+      position: relative;
+      display: inline-block;
+    }
     .face-canvas {
       width: 88px; height: 88px;
       border-radius: 6px;
       background: #252525;
       display: block;
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: border-color 0.1s;
     }
+    .face-canvas-wrap.face-selected .face-canvas { border-color: #e53935; }
+    .face-del-badge {
+      position: absolute;
+      top: 3px; right: 3px;
+      background: #e53935;
+      color: #fff;
+      font-size: 10px;
+      border-radius: 50%;
+      width: 16px; height: 16px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .face-canvas-wrap.face-selected .face-del-badge { display: flex; }
 
     #label-section {
       padding: 12px 16px;
       border-top: 1px solid #2a2a2a;
       flex-shrink: 0;
     }
-    #label-search { margin-bottom: 10px; }
+    #label-search-wrap { position: relative; margin-bottom: 10px; }
+    #label-search { }
     #label-options {
       display: flex;
       flex-wrap: wrap;
       gap: 7px;
       max-height: 130px;
       overflow-y: auto;
+    }
+    #label-create-hints {
+      display: flex;
+      gap: 8px;
+      margin-top: 6px;
+      flex-wrap: wrap;
     }
     .label-chip {
       display: inline-flex;
@@ -206,8 +290,81 @@
       padding: 12px 16px;
       border-top: 1px solid #2a2a2a;
       flex-shrink: 0;
+      flex-wrap: wrap;
     }
     #modal-footer button { min-width: 88px; }
+
+    /* ── Library view ──────────────────────────────────────────────────── */
+    #screen-library {
+      padding: 18px;
+    }
+    .lib-section { margin-bottom: 24px; }
+    .lib-section-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .lib-section-header h2 { font-size: 1rem; }
+    .lib-section-header button { padding: 6px 12px; font-size: 12px; }
+
+    .lib-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: #1c1c1c;
+      border: 1px solid #2a2a2a;
+      margin-bottom: 6px;
+      transition: border-color 0.1s;
+    }
+    .lib-item:hover { border-color: #3a3a3a; }
+    .lib-item-name { font-size: 14px; flex: 1; font-weight: 500; cursor: pointer; }
+    .lib-item-name:hover { color: #4a9eff; }
+    .lib-item-count { font-size: 12px; color: #666; min-width: 56px; text-align: right; }
+    .lib-item-actions { display: flex; gap: 6px; align-items: center; }
+    .lib-item-actions button { padding: 4px 10px; font-size: 12px; }
+    .lib-item-actions input[type=text] { width: 160px; font-size: 13px; padding: 4px 8px; }
+
+    .lib-photos-panel {
+      margin: 10px 0 16px;
+      padding: 12px;
+      background: #161616;
+      border-radius: 8px;
+      border: 1px solid #2a2a2a;
+    }
+    .lib-photos-panel h3 { font-size: 13px; color: #888; margin-bottom: 10px; }
+    .lib-thumb-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .lib-thumb {
+      width: 80px; height: 80px;
+      border-radius: 6px;
+      object-fit: cover;
+      background: #252525;
+      display: block;
+    }
+    .lib-load-more { margin-top: 10px; padding: 6px 14px; font-size: 13px; }
+
+    .lib-new-form {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 10px 12px;
+      background: #1a1a1a;
+      border-radius: 8px;
+      border: 1px dashed #333;
+      margin-top: 8px;
+    }
+    .lib-new-form input[type=text] { flex: 1; font-size: 13px; padding: 6px 10px; }
+    .lib-new-form button { padding: 6px 12px; font-size: 13px; }
+
+    .lib-error { color: #ff6b6b; font-size: 12px; margin-top: 4px; }
+    .lib-auto-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; }
+    .lib-auto-toggle input[type=checkbox] { cursor: pointer; }
   </style>
 </head>
 <body>
@@ -227,12 +384,25 @@
 <!-- ── Main ───────────────────────────────────────────────────────────────── -->
 <div id="screen-main" hidden>
   <header>
-    <h1>Face Clusters</h1>
+    <h1>PhotoVault</h1>
+    <button class="nav-tab active" id="tab-clusters" onclick="switchTab('clusters')">Clusters</button>
+    <button class="nav-tab"        id="tab-library"  onclick="switchTab('library')">Library</button>
     <span id="cluster-count"></span>
     <button id="btn-toggle-all" class="btn-ghost">Show labeled</button>
     <button id="btn-logout" class="btn-ghost">Logout</button>
   </header>
+
+  <!-- bulk action bar -->
+  <div id="bulk-bar">
+    <span id="bulk-count"></span>
+    <button id="btn-bulk-label"  class="btn-primary">Label selected…</button>
+    <button id="btn-bulk-merge"  class="btn-ghost">Merge selected</button>
+    <button id="btn-bulk-reject" class="btn-danger">Reject selected</button>
+    <button id="btn-bulk-cancel" class="btn-ghost">Cancel</button>
+  </div>
+
   <div id="clusters-grid"></div>
+  <div id="screen-library" hidden></div>
 </div>
 
 <!-- ── Modal ──────────────────────────────────────────────────────────────── -->
@@ -241,16 +411,21 @@
     <div id="modal-header">
       <h2 id="modal-title">Label cluster</h2>
       <span id="modal-face-count"></span>
+      <button id="modal-remove-faces-btn" class="btn-danger" hidden>Remove selected faces</button>
     </div>
     <div id="faces-grid"></div>
     <div id="label-section">
-      <input id="label-search" type="text" placeholder="Search tags and categories…">
+      <div id="label-search-wrap">
+        <input id="label-search" type="text" placeholder="Search tags and categories…">
+      </div>
       <div id="label-options"></div>
+      <div id="label-create-hints"></div>
     </div>
     <div id="modal-footer">
-      <button id="btn-modal-reject" class="btn-danger">Reject cluster</button>
-      <button id="btn-modal-cancel" class="btn-ghost">Cancel</button>
-      <button id="btn-modal-label"  class="btn-primary" disabled>Label</button>
+      <button id="btn-modal-unlabel" class="btn-warn"    hidden>Remove label</button>
+      <button id="btn-modal-reject"  class="btn-danger">Reject cluster</button>
+      <button id="btn-modal-cancel"  class="btn-ghost">Cancel</button>
+      <button id="btn-modal-label"   class="btn-primary" disabled>Label</button>
     </div>
   </div>
 </div>
@@ -258,19 +433,27 @@
 <script>
 // ── State ──────────────────────────────────────────────────────────────────────
 const S = {
-  serverUrl: '',
-  token: '',
-  clusters: [],
-  tags: [],
-  categories: [],
-  showAll: false,
-  activeCluster: null,
-  pickedId: null,
-  pickedKind: null,
-  imgCache: new Map(),   // url → Promise<HTMLImageElement>
+  serverUrl:       '',
+  token:           '',
+  clusters:        [],
+  tags:            [],
+  categories:      [],
+  showAll:         false,
+  activeCluster:   null,
+  pickedId:        null,
+  pickedKind:      null,
+  imgCache:        new Map(),
+  selectedIds:     new Set(),   // multi-select on grid
+  selectedFaceIds: new Set(),   // face removal in modal
+  currentTab:      'clusters',
+  // library state
+  libOpenTagId:    null,
+  libOpenCatId:    null,
+  libPhotosTagCache: new Map(),
+  libPhotosCatCache: new Map(),
 };
 
-// ── Session persistence ────────────────────────────────────────────────────────
+// ── Session ────────────────────────────────────────────────────────────────────
 function saveSession()    { localStorage.setItem('pv_url', S.serverUrl); localStorage.setItem('pv_tok', S.token); }
 function clearSession()   { localStorage.removeItem('pv_tok'); }
 function restoreSession() {
@@ -320,12 +503,9 @@ async function drawCrop(canvas, photoId, bx, by, bw, bh) {
     const sh   = Math.min(img.naturalHeight - sy, bh + pad * 2);
     ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
   } catch {
-    ctx.fillStyle = '#252525';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#555';
-    ctx.font = '22px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#252525'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#555'; ctx.font = '22px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText('?', canvas.width / 2, canvas.height / 2);
   }
 }
@@ -361,6 +541,20 @@ function logout() {
 }
 document.getElementById('btn-logout').addEventListener('click', logout);
 
+// ── Tab navigation ─────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  S.currentTab = tab;
+  const isCluster = tab === 'clusters';
+  document.getElementById('clusters-grid').hidden    = !isCluster;
+  document.getElementById('screen-library').hidden   = isCluster;
+  document.getElementById('btn-toggle-all').hidden   = !isCluster;
+  document.getElementById('cluster-count').hidden    = !isCluster;
+  document.getElementById('bulk-bar').classList.toggle('visible', isCluster && S.selectedIds.size > 0);
+  document.getElementById('tab-clusters').classList.toggle('active', isCluster);
+  document.getElementById('tab-library').classList.toggle('active', !isCluster);
+  if (!isCluster) renderLibrary();
+}
+
 // ── Main screen ────────────────────────────────────────────────────────────────
 async function enterMain() {
   document.getElementById('screen-login').hidden = true;
@@ -381,9 +575,11 @@ async function loadAll() {
 async function loadClusters() {
   const grid = document.getElementById('clusters-grid');
   grid.innerHTML = '<div id="loading-msg"><span class="spinner"></span></div>';
-  const qs  = S.showAll ? '' : '?unlabeled=true';
+  S.selectedIds.clear();
+  updateBulkBar();
+  const qs   = S.showAll ? '' : '?unlabeled=true';
   const data = await api('GET', `/admin/face-clusters${qs}`);
-  S.clusters = data.items;
+  S.clusters  = data.items;
   renderGrid();
 }
 
@@ -406,9 +602,18 @@ function renderGrid() {
 }
 
 function buildCard(cluster) {
-  const card   = document.createElement('div');
-  card.className  = 'cluster-card';
-  card.dataset.id = cluster.id;
+  const card    = document.createElement('div');
+  card.className   = 'cluster-card';
+  card.dataset.id  = cluster.id;
+  card.tabIndex    = 0;
+
+  // Checkbox for multi-select
+  const cb = document.createElement('div');
+  cb.className = 'cluster-checkbox';
+  cb.textContent = '✓';
+  cb.title = 'Select';
+  cb.addEventListener('click', e => { e.stopPropagation(); toggleSelect(cluster.id, card); });
+  card.appendChild(cb);
 
   // Face crop canvas
   const canvas = document.createElement('canvas');
@@ -436,10 +641,12 @@ function buildCard(cluster) {
   // Actions
   const actions = document.createElement('div');
   actions.className = 'cluster-actions';
+
   const btnL = document.createElement('button');
   btnL.className = 'btn-primary';
   btnL.textContent = 'Label';
   btnL.addEventListener('click', () => openModal(cluster));
+
   const btnR = document.createElement('button');
   btnR.className = 'btn-ghost';
   btnR.textContent = 'Reject';
@@ -447,13 +654,118 @@ function buildCard(cluster) {
     if (!confirm('Reject this cluster?')) return;
     await deleteCluster(cluster.id);
   });
+
   actions.appendChild(btnL);
+
+  if (cluster.tagId || cluster.categoryId) {
+    const btnU = document.createElement('button');
+    btnU.className = 'btn-warn';
+    btnU.textContent = 'Unlabel';
+    btnU.addEventListener('click', async () => {
+      if (!confirm('Remove label from this cluster?')) return;
+      try {
+        const updated = await api('POST', `/admin/face-clusters/${cluster.id}/unlabel`);
+        Object.assign(cluster, updated);
+        card.replaceWith(buildCard(updated));
+      } catch(err) { alert(`Unlabel failed: ${err.message}`); }
+    });
+    actions.appendChild(btnU);
+  }
   actions.appendChild(btnR);
   card.appendChild(actions);
 
+  // Keyboard nav
+  card.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === 'l' || e.key === 'L') { e.preventDefault(); openModal(cluster); }
+    if (e.key === 'r' || e.key === 'R') { e.preventDefault(); if (confirm('Reject this cluster?')) deleteCluster(cluster.id); }
+    if (e.key === ' ')  { e.preventDefault(); toggleSelect(cluster.id, card); }
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); focusNextCard(card, 1); }
+    if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   { e.preventDefault(); focusNextCard(card, -1); }
+  });
+
+  if (S.selectedIds.has(cluster.id)) card.classList.add('selected');
   return card;
 }
 
+function focusNextCard(current, dir) {
+  const cards = [...document.querySelectorAll('.cluster-card')];
+  const idx   = cards.indexOf(current);
+  const next  = cards[idx + dir];
+  if (next) next.focus();
+}
+
+// ── Multi-select ──────────────────────────────────────────────────────────────
+function toggleSelect(id, card) {
+  if (S.selectedIds.has(id)) { S.selectedIds.delete(id); card.classList.remove('selected'); }
+  else                       { S.selectedIds.add(id);    card.classList.add('selected'); }
+  updateBulkBar();
+}
+
+function updateBulkBar() {
+  const n   = S.selectedIds.size;
+  const bar = document.getElementById('bulk-bar');
+  bar.classList.toggle('visible', n > 0 && S.currentTab === 'clusters');
+  document.getElementById('bulk-count').textContent = `${n} cluster${n !== 1 ? 's' : ''} selected`;
+}
+
+document.getElementById('btn-bulk-cancel').addEventListener('click', () => {
+  S.selectedIds.clear();
+  document.querySelectorAll('.cluster-card.selected').forEach(c => c.classList.remove('selected'));
+  updateBulkBar();
+});
+
+document.getElementById('btn-bulk-reject').addEventListener('click', async () => {
+  if (!confirm(`Reject ${S.selectedIds.size} clusters?`)) return;
+  const ids = [...S.selectedIds];
+  S.selectedIds.clear();
+  updateBulkBar();
+  for (const id of ids) {
+    try { await deleteCluster(id); } catch(e) { console.error('bulk reject', id, e); }
+  }
+});
+
+document.getElementById('btn-bulk-merge').addEventListener('click', async () => {
+  if (S.selectedIds.size < 2) { alert('Select at least 2 clusters to merge.'); return; }
+  const ids = [...S.selectedIds];
+  const target = ids[0];
+  const sources = ids.slice(1);
+  if (!confirm(`Merge ${sources.length} cluster(s) into cluster ${target}?`)) return;
+  try {
+    const updated = await api('POST', `/admin/face-clusters/${target}/merge`, { sourceClusterIds: sources });
+    // Remove source cards, update target card
+    sources.forEach(id => {
+      document.querySelector(`.cluster-card[data-id="${id}"]`)?.remove();
+      S.clusters = S.clusters.filter(c => c.id !== id);
+    });
+    const targetCluster = S.clusters.find(c => c.id === target);
+    if (targetCluster) {
+      Object.assign(targetCluster, updated);
+      document.querySelector(`.cluster-card[data-id="${target}"]`)?.replaceWith(buildCard(updated));
+    }
+    S.selectedIds.clear();
+    updateBulkBar();
+    document.getElementById('cluster-count').textContent =
+      `${S.clusters.length} cluster${S.clusters.length !== 1 ? 's' : ''}`;
+  } catch(err) { alert(`Merge failed: ${err.message}`); }
+});
+
+document.getElementById('btn-bulk-label').addEventListener('click', () => {
+  // Open modal in "bulk label" mode — picks label and applies to all selected
+  S.bulkLabelMode = true;
+  S.activeCluster = null;
+  S.pickedId = S.pickedKind = null;
+  document.getElementById('btn-modal-label').disabled = true;
+  document.getElementById('btn-modal-unlabel').hidden = true;
+  document.getElementById('modal-title').textContent  = `Label ${S.selectedIds.size} clusters`;
+  document.getElementById('modal-face-count').textContent = '';
+  document.getElementById('modal-remove-faces-btn').hidden = true;
+  document.getElementById('faces-grid').innerHTML = '';
+  document.getElementById('label-search').value = '';
+  document.getElementById('modal-overlay').hidden = false;
+  renderChips('');
+});
+
+// ── Delete cluster ─────────────────────────────────────────────────────────────
 async function deleteCluster(id) {
   await api('DELETE', `/admin/face-clusters/${id}`);
   document.querySelector(`.cluster-card[data-id="${id}"]`)?.remove();
@@ -465,13 +777,20 @@ async function deleteCluster(id) {
 
 // ── Modal ──────────────────────────────────────────────────────────────────────
 async function openModal(cluster) {
+  S.bulkLabelMode = false;
   S.activeCluster = cluster;
   S.pickedId = S.pickedKind = null;
+  S.selectedFaceIds.clear();
   document.getElementById('btn-modal-label').disabled = true;
-  document.getElementById('modal-title').textContent = `Cluster  ${cluster.id}`;
+  document.getElementById('modal-title').textContent  = `Cluster  ${cluster.id}`;
   document.getElementById('modal-face-count').textContent = '';
   document.getElementById('label-search').value = '';
   document.getElementById('modal-overlay').hidden = false;
+  document.getElementById('modal-remove-faces-btn').hidden = true;
+
+  // Show/hide unlabel button
+  const hasLabel = !!(cluster.tagId || cluster.categoryId);
+  document.getElementById('btn-modal-unlabel').hidden = !hasLabel;
 
   // Load faces async
   const facesGrid = document.getElementById('faces-grid');
@@ -480,16 +799,59 @@ async function openModal(cluster) {
   document.getElementById('modal-face-count').textContent = `${data.items.length} faces`;
   facesGrid.innerHTML = '';
   for (const face of data.items) {
+    const wrap = document.createElement('div');
+    wrap.className = 'face-canvas-wrap';
+    wrap.dataset.faceId = face.faceId;
+
+    const badge = document.createElement('div');
+    badge.className = 'face-del-badge';
+    badge.textContent = '✕';
+
     const c = document.createElement('canvas');
     c.className = 'face-canvas';
     c.width = c.height = 88;
     c.title = `score: ${face.detScore.toFixed(2)}`;
-    facesGrid.appendChild(c);
+    c.addEventListener('click', () => toggleFaceSelect(wrap, face.faceId));
+
+    wrap.appendChild(c);
+    wrap.appendChild(badge);
+    facesGrid.appendChild(wrap);
     drawCrop(c, face.photoId, face.bboxX, face.bboxY, face.bboxW, face.bboxH);
   }
 
   renderChips('');
 }
+
+function toggleFaceSelect(wrap, faceId) {
+  if (S.selectedFaceIds.has(faceId)) {
+    S.selectedFaceIds.delete(faceId);
+    wrap.classList.remove('face-selected');
+  } else {
+    S.selectedFaceIds.add(faceId);
+    wrap.classList.add('face-selected');
+  }
+  document.getElementById('modal-remove-faces-btn').hidden = S.selectedFaceIds.size === 0;
+}
+
+document.getElementById('modal-remove-faces-btn').addEventListener('click', async () => {
+  if (!S.activeCluster || S.selectedFaceIds.size === 0) return;
+  if (!confirm(`Remove ${S.selectedFaceIds.size} face(s) from this cluster?`)) return;
+  const btn = document.getElementById('modal-remove-faces-btn');
+  btn.disabled = true;
+  try {
+    const updated = await api('POST', `/admin/face-clusters/${S.activeCluster.id}/remove-faces`,
+      { faceIds: [...S.selectedFaceIds] });
+    Object.assign(S.activeCluster, updated);
+    // Refresh the card on the grid
+    document.querySelector(`.cluster-card[data-id="${S.activeCluster.id}"]`)
+      ?.replaceWith(buildCard(S.activeCluster));
+    // Re-open modal with fresh faces
+    await openModal(S.activeCluster);
+  } catch(err) {
+    alert(`Remove faces failed: ${err.message}`);
+    btn.disabled = false;
+  }
+});
 
 function renderChips(query) {
   const q   = query.toLowerCase();
@@ -497,16 +859,84 @@ function renderChips(query) {
   box.innerHTML = '';
   const matchTag = t => !q || t.name.toLowerCase().includes(q);
   const matchCat = c => !q || c.name.toLowerCase().includes(q);
-  for (const t of S.tags.filter(matchTag))       box.appendChild(chip(t.id, 'tag',      t.name, null));
-  for (const c of S.categories.filter(matchCat)) box.appendChild(chip(c.id, 'category', c.name, c.colorHex));
+  const filteredTags = S.tags.filter(matchTag);
+  const filteredCats = S.categories.filter(matchCat);
+  for (const t of filteredTags) box.appendChild(chip(t.id, 'tag',      t.name, null));
+  for (const c of filteredCats) box.appendChild(chip(c.id, 'category', c.name, c.colorHex));
+
+  // Inline create hints
+  renderCreateHints(query, filteredTags, filteredCats);
+}
+
+function renderCreateHints(query, filteredTags, filteredCats) {
+  const hintsEl = document.getElementById('label-create-hints');
+  hintsEl.innerHTML = '';
+  if (!query) return;
+
+  const allMatch = filteredTags.length === 0 && filteredCats.length === 0;
+  const tagName  = query.startsWith('#') ? query : `#${query}`;
+
+  // Suggest creating a tag
+  if (filteredTags.length === 0) {
+    const btn = document.createElement('button');
+    btn.className = 'btn-ghost';
+    btn.style.fontSize = '12px';
+    btn.textContent = `+ Create tag "${tagName}"`;
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        const tag = await api('POST', '/tags', { name: tagName });
+        S.tags.push(tag);
+        S.pickedId   = tag.id;
+        S.pickedKind = 'tag';
+        document.getElementById('label-search').value = '';
+        renderChips('');
+        document.getElementById('btn-modal-label').disabled = false;
+        // Auto-select the new chip
+        document.querySelectorAll('.label-chip').forEach(c => c.classList.remove('selected'));
+        document.querySelector(`.label-chip[data-id="${tag.id}"]`)?.classList.add('selected');
+      } catch(err) {
+        alert(`Create tag failed: ${err.message}`);
+        btn.disabled = false;
+      }
+    });
+    hintsEl.appendChild(btn);
+  }
+
+  // Suggest creating a category (only when query has no # prefix)
+  if (!query.startsWith('#') && filteredCats.length === 0) {
+    const btn = document.createElement('button');
+    btn.className = 'btn-ghost';
+    btn.style.fontSize = '12px';
+    btn.textContent = `+ Create category "${query}"`;
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        const cat = await api('POST', '/categories', { name: query, colorHex: '#888888' });
+        S.categories.push(cat);
+        S.pickedId   = cat.id;
+        S.pickedKind = 'category';
+        document.getElementById('label-search').value = '';
+        renderChips('');
+        document.getElementById('btn-modal-label').disabled = false;
+        document.querySelectorAll('.label-chip').forEach(c => c.classList.remove('selected'));
+        document.querySelector(`.label-chip[data-id="${cat.id}"]`)?.classList.add('selected');
+      } catch(err) {
+        alert(`Create category failed: ${err.message}`);
+        btn.disabled = false;
+      }
+    });
+    hintsEl.appendChild(btn);
+  }
 }
 
 function chip(id, kind, name, colorHex) {
   const el = document.createElement('div');
-  el.className = 'label-chip' + (S.pickedId === id ? ' selected' : '');
+  el.className     = 'label-chip' + (S.pickedId === id ? ' selected' : '');
+  el.dataset.id    = id;
   if (colorHex) {
     const dot = document.createElement('span');
-    dot.className = 'color-dot';
+    dot.className  = 'color-dot';
     dot.style.background = colorHex;
     el.appendChild(dot);
   }
@@ -524,27 +954,58 @@ document.getElementById('label-search').addEventListener('input', e => renderChi
 
 function closeModal() {
   document.getElementById('modal-overlay').hidden = true;
-  S.activeCluster = null;
+  S.activeCluster  = null;
+  S.bulkLabelMode  = false;
+  S.selectedFaceIds.clear();
 }
 document.getElementById('btn-modal-cancel').addEventListener('click', closeModal);
 document.getElementById('modal-overlay').addEventListener('click', e => {
   if (e.target.id === 'modal-overlay') closeModal();
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeModal();
+  if (e.key === 'Enter' && !document.getElementById('modal-overlay').hidden) {
+    const btn = document.getElementById('btn-modal-label');
+    if (!btn.disabled) btn.click();
+  }
+});
 
 document.getElementById('btn-modal-label').addEventListener('click', async () => {
-  if (!S.activeCluster || !S.pickedId) return;
+  if (!S.pickedId) return;
   const btn = document.getElementById('btn-modal-label');
   btn.disabled = true;
   try {
     const body = S.pickedKind === 'tag' ? { tagId: S.pickedId } : { categoryId: S.pickedId };
-    await api('POST', `/admin/face-clusters/${S.activeCluster.id}/label`, body);
-    if (!S.showAll) {
-      document.querySelector(`.cluster-card[data-id="${S.activeCluster.id}"]`)?.remove();
-      S.clusters = S.clusters.filter(c => c.id !== S.activeCluster.id);
+    if (S.bulkLabelMode) {
+      // Apply to all selected clusters
+      const ids = [...S.selectedIds];
+      for (const id of ids) {
+        try {
+          await api('POST', `/admin/face-clusters/${id}/label`, body);
+          if (!S.showAll) {
+            document.querySelector(`.cluster-card[data-id="${id}"]`)?.remove();
+            S.clusters = S.clusters.filter(c => c.id !== id);
+          }
+        } catch(e) { console.error('bulk label', id, e); }
+      }
+      S.selectedIds.clear();
+      updateBulkBar();
       document.getElementById('cluster-count').textContent =
         `${S.clusters.length} cluster${S.clusters.length !== 1 ? 's' : ''}`;
       if (!S.clusters.length) renderGrid();
+    } else {
+      const updated = await api('POST', `/admin/face-clusters/${S.activeCluster.id}/label`, body);
+      if (!S.showAll) {
+        document.querySelector(`.cluster-card[data-id="${S.activeCluster.id}"]`)?.remove();
+        S.clusters = S.clusters.filter(c => c.id !== S.activeCluster.id);
+        document.getElementById('cluster-count').textContent =
+          `${S.clusters.length} cluster${S.clusters.length !== 1 ? 's' : ''}`;
+        if (!S.clusters.length) renderGrid();
+      } else {
+        Object.assign(S.activeCluster, updated);
+        document.querySelector(`.cluster-card[data-id="${S.activeCluster.id}"]`)
+          ?.replaceWith(buildCard(S.activeCluster));
+      }
     }
     closeModal();
   } catch (err) {
@@ -553,11 +1014,371 @@ document.getElementById('btn-modal-label').addEventListener('click', async () =>
   }
 });
 
+document.getElementById('btn-modal-unlabel').addEventListener('click', async () => {
+  if (!S.activeCluster || !confirm('Remove label from this cluster?')) return;
+  try {
+    const updated = await api('POST', `/admin/face-clusters/${S.activeCluster.id}/unlabel`);
+    Object.assign(S.activeCluster, updated);
+    document.querySelector(`.cluster-card[data-id="${S.activeCluster.id}"]`)
+      ?.replaceWith(buildCard(S.activeCluster));
+    closeModal();
+  } catch(err) { alert(`Unlabel failed: ${err.message}`); }
+});
+
 document.getElementById('btn-modal-reject').addEventListener('click', async () => {
   if (!S.activeCluster || !confirm('Reject this cluster?')) return;
   await deleteCluster(S.activeCluster.id);
   closeModal();
 });
+
+// ── Library view ───────────────────────────────────────────────────────────────
+async function renderLibrary() {
+  const el = document.getElementById('screen-library');
+  // Refresh tags/categories in case they were edited
+  const [tagsData, catsData] = await Promise.all([api('GET', '/tags'), api('GET', '/categories')]);
+  S.tags       = tagsData.items;
+  S.categories = catsData.items;
+
+  el.innerHTML = '';
+
+  // ── Tags section ──────────────────────────────────────────────────────
+  const tagsSection = document.createElement('div');
+  tagsSection.className = 'lib-section';
+  const tagsHeader = document.createElement('div');
+  tagsHeader.className = 'lib-section-header';
+  tagsHeader.innerHTML = '<h2>Tags</h2>';
+  tagsSection.appendChild(tagsHeader);
+
+  for (const tag of S.tags) tagsSection.appendChild(buildLibTagItem(tag));
+
+  // New tag form
+  tagsSection.appendChild(buildNewTagForm());
+  el.appendChild(tagsSection);
+
+  // ── Categories section ────────────────────────────────────────────────
+  const catsSection = document.createElement('div');
+  catsSection.className = 'lib-section';
+  const catsHeader = document.createElement('div');
+  catsHeader.className = 'lib-section-header';
+  catsHeader.innerHTML = '<h2>Categories</h2>';
+  catsSection.appendChild(catsHeader);
+
+  for (const cat of S.categories) catsSection.appendChild(buildLibCatItem(cat));
+
+  catsSection.appendChild(buildNewCatForm());
+  el.appendChild(catsSection);
+}
+
+function buildLibTagItem(tag) {
+  const item = document.createElement('div');
+  item.className = 'lib-item';
+  item.dataset.tagId = tag.id;
+
+  const nameEl = document.createElement('span');
+  nameEl.className   = 'lib-item-name';
+  nameEl.textContent = tag.name;
+  nameEl.title       = 'Show photos';
+  nameEl.addEventListener('click', () => toggleLibPhotos(item, 'tag', tag.id, tag.name));
+
+  const count = document.createElement('span');
+  count.className   = 'lib-item-count';
+  count.textContent = `${tag.photoCount} photos`;
+
+  const autoToggle = document.createElement('label');
+  autoToggle.className = 'lib-auto-toggle';
+  const cb = document.createElement('input');
+  cb.type    = 'checkbox';
+  cb.checked = tag.autoEnabled;
+  cb.title   = 'Auto-enabled (ML may assign this tag)';
+  cb.addEventListener('change', async () => {
+    try { await api('PATCH', `/tags/${tag.id}`, { autoEnabled: cb.checked }); tag.autoEnabled = cb.checked; }
+    catch(err) { alert(err.message); cb.checked = !cb.checked; }
+  });
+  autoToggle.appendChild(cb);
+  autoToggle.append('auto');
+
+  const actions = document.createElement('div');
+  actions.className = 'lib-item-actions';
+
+  const renameBtn = document.createElement('button');
+  renameBtn.className   = 'btn-ghost';
+  renameBtn.textContent = 'Rename';
+  renameBtn.addEventListener('click', () => inlineRenameTag(item, tag));
+
+  const delBtn = document.createElement('button');
+  delBtn.className   = 'btn-danger';
+  delBtn.textContent = 'Delete';
+  delBtn.addEventListener('click', async () => {
+    if (!confirm(`Delete tag "${tag.name}"? This will also remove it from all photos.`)) return;
+    try {
+      await api('DELETE', `/tags/${tag.id}`);
+      item.remove();
+      S.tags = S.tags.filter(t => t.id !== tag.id);
+    } catch(err) { alert(`Delete failed: ${err.message}`); }
+  });
+
+  actions.appendChild(autoToggle);
+  actions.appendChild(renameBtn);
+  actions.appendChild(delBtn);
+  item.appendChild(nameEl);
+  item.appendChild(count);
+  item.appendChild(actions);
+  return item;
+}
+
+function inlineRenameTag(item, tag) {
+  const nameEl = item.querySelector('.lib-item-name');
+  const inp    = document.createElement('input');
+  inp.type     = 'text';
+  inp.value    = tag.name;
+  inp.style.flex = '1';
+  inp.style.fontSize = '13px';
+  inp.style.padding  = '4px 8px';
+  nameEl.replaceWith(inp);
+  inp.focus();
+
+  const save = async () => {
+    const newName = inp.value.trim();
+    if (!newName || newName === tag.name) { inp.replaceWith(nameEl); return; }
+    try {
+      const updated = await api('PATCH', `/tags/${tag.id}`, { name: newName });
+      tag.name = updated.name;
+      nameEl.textContent = updated.name;
+      inp.replaceWith(nameEl);
+    } catch(err) {
+      alert(`Rename failed: ${err.message}`);
+      inp.replaceWith(nameEl);
+    }
+  };
+  inp.addEventListener('blur',    save);
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') inp.replaceWith(nameEl); });
+}
+
+function buildNewTagForm() {
+  const form = document.createElement('div');
+  form.className = 'lib-new-form';
+  const inp = document.createElement('input');
+  inp.type        = 'text';
+  inp.placeholder = 'New tag name (must start with #)';
+  const btn = document.createElement('button');
+  btn.className   = 'btn-primary';
+  btn.textContent = '+ New tag';
+  const errEl = document.createElement('div');
+  errEl.className = 'lib-error';
+
+  btn.addEventListener('click', async () => {
+    errEl.textContent = '';
+    const name = inp.value.trim();
+    if (!name) return;
+    btn.disabled = true;
+    try {
+      const tag = await api('POST', '/tags', { name });
+      S.tags.push(tag);
+      inp.value = '';
+      // Insert new item before the form
+      form.insertAdjacentElement('beforebegin', buildLibTagItem(tag));
+    } catch(err) {
+      errEl.textContent = err.message;
+    } finally { btn.disabled = false; }
+  });
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') btn.click(); });
+
+  form.appendChild(inp);
+  form.appendChild(btn);
+  form.appendChild(errEl);
+  return form;
+}
+
+function buildLibCatItem(cat) {
+  const item = document.createElement('div');
+  item.className = 'lib-item';
+  item.dataset.catId = cat.id;
+
+  const dot = document.createElement('span');
+  dot.className    = 'color-dot';
+  dot.style.background = cat.colorHex;
+  dot.style.flexShrink = '0';
+
+  const nameEl = document.createElement('span');
+  nameEl.className   = 'lib-item-name';
+  nameEl.textContent = cat.name;
+  nameEl.title       = 'Show photos';
+  nameEl.addEventListener('click', () => toggleLibPhotos(item, 'category', cat.id, cat.name));
+
+  const count = document.createElement('span');
+  count.className   = 'lib-item-count';
+  count.textContent = `${cat.photoCount} photos`;
+
+  const autoToggle = document.createElement('label');
+  autoToggle.className = 'lib-auto-toggle';
+  const cb = document.createElement('input');
+  cb.type    = 'checkbox';
+  cb.checked = cat.autoEnabled;
+  cb.title   = 'Auto-enabled';
+  cb.addEventListener('change', async () => {
+    try { await api('PATCH', `/categories/${cat.id}`, { autoEnabled: cb.checked }); cat.autoEnabled = cb.checked; }
+    catch(err) { alert(err.message); cb.checked = !cb.checked; }
+  });
+  autoToggle.appendChild(cb);
+  autoToggle.append('auto');
+
+  const colorPicker = document.createElement('input');
+  colorPicker.type  = 'color';
+  colorPicker.value = cat.colorHex;
+  colorPicker.title = 'Change color';
+  colorPicker.addEventListener('change', async () => {
+    try {
+      await api('PATCH', `/categories/${cat.id}`, { colorHex: colorPicker.value });
+      cat.colorHex = colorPicker.value;
+      dot.style.background = colorPicker.value;
+    } catch(err) { alert(`Color update failed: ${err.message}`); colorPicker.value = cat.colorHex; }
+  });
+
+  const actions = document.createElement('div');
+  actions.className = 'lib-item-actions';
+
+  const renameBtn = document.createElement('button');
+  renameBtn.className   = 'btn-ghost';
+  renameBtn.textContent = 'Rename';
+  renameBtn.addEventListener('click', () => inlineRenameCat(item, cat, dot));
+
+  const delBtn = document.createElement('button');
+  delBtn.className   = 'btn-danger';
+  delBtn.textContent = 'Delete';
+  delBtn.addEventListener('click', async () => {
+    if (!confirm(`Delete category "${cat.name}"?`)) return;
+    try {
+      await api('DELETE', `/categories/${cat.id}`);
+      item.remove();
+      S.categories = S.categories.filter(c => c.id !== cat.id);
+    } catch(err) { alert(`Delete failed: ${err.message}`); }
+  });
+
+  actions.appendChild(autoToggle);
+  actions.appendChild(colorPicker);
+  actions.appendChild(renameBtn);
+  actions.appendChild(delBtn);
+  item.appendChild(dot);
+  item.appendChild(nameEl);
+  item.appendChild(count);
+  item.appendChild(actions);
+  return item;
+}
+
+function inlineRenameCat(item, cat) {
+  const nameEl = item.querySelector('.lib-item-name');
+  const inp    = document.createElement('input');
+  inp.type     = 'text';
+  inp.value    = cat.name;
+  inp.style.flex = '1'; inp.style.fontSize = '13px'; inp.style.padding = '4px 8px';
+  nameEl.replaceWith(inp);
+  inp.focus();
+
+  const save = async () => {
+    const newName = inp.value.trim();
+    if (!newName || newName === cat.name) { inp.replaceWith(nameEl); return; }
+    try {
+      const updated = await api('PATCH', `/categories/${cat.id}`, { name: newName });
+      cat.name = updated.name;
+      nameEl.textContent = updated.name;
+      inp.replaceWith(nameEl);
+    } catch(err) {
+      alert(`Rename failed: ${err.message}`);
+      inp.replaceWith(nameEl);
+    }
+  };
+  inp.addEventListener('blur',    save);
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') inp.replaceWith(nameEl); });
+}
+
+function buildNewCatForm() {
+  const form = document.createElement('div');
+  form.className = 'lib-new-form';
+  const inp = document.createElement('input');
+  inp.type        = 'text';
+  inp.placeholder = 'New category name';
+  const colorInp = document.createElement('input');
+  colorInp.type  = 'color';
+  colorInp.value = '#4a9eff';
+  const btn = document.createElement('button');
+  btn.className   = 'btn-primary';
+  btn.textContent = '+ New category';
+  const errEl = document.createElement('div');
+  errEl.className = 'lib-error';
+
+  btn.addEventListener('click', async () => {
+    errEl.textContent = '';
+    const name = inp.value.trim();
+    if (!name) return;
+    btn.disabled = true;
+    try {
+      const cat = await api('POST', '/categories', { name, colorHex: colorInp.value });
+      S.categories.push(cat);
+      inp.value = '';
+      form.insertAdjacentElement('beforebegin', buildLibCatItem(cat));
+    } catch(err) {
+      errEl.textContent = err.message;
+    } finally { btn.disabled = false; }
+  });
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') btn.click(); });
+
+  form.appendChild(inp);
+  form.appendChild(colorInp);
+  form.appendChild(btn);
+  form.appendChild(errEl);
+  return form;
+}
+
+// ── Library photo panel ────────────────────────────────────────────────────────
+async function toggleLibPhotos(item, kind, id, name) {
+  const existing = item.nextElementSibling;
+  if (existing && existing.classList.contains('lib-photos-panel')) {
+    existing.remove();
+    return;
+  }
+
+  const panel = document.createElement('div');
+  panel.className = 'lib-photos-panel';
+  panel.innerHTML = `<h3>Photos tagged "${name}" <span class="spinner"></span></h3><div class="lib-thumb-grid"></div>`;
+  item.insertAdjacentElement('afterend', panel);
+
+  const qs = kind === 'tag' ? `tagIds=${id}` : `categoryIds=${id}`;
+  try {
+    const data = await api('GET', `/photos?${qs}&limit=30`);
+    panel.querySelector('h3').textContent = `Photos in "${name}" (${data.items.length} shown)`;
+    const grid = panel.querySelector('.lib-thumb-grid');
+    appendThumbs(grid, data.items);
+
+    if (data.nextCursor) {
+      const loadMore = document.createElement('button');
+      loadMore.className   = 'btn-ghost lib-load-more';
+      loadMore.textContent = 'Load more…';
+      let cursor = data.nextCursor;
+      loadMore.addEventListener('click', async () => {
+        loadMore.disabled = true;
+        const more = await api('GET', `/photos?${qs}&limit=30&cursor=${encodeURIComponent(cursor)}`);
+        appendThumbs(grid, more.items);
+        if (more.nextCursor) { cursor = more.nextCursor; loadMore.disabled = false; }
+        else loadMore.remove();
+      });
+      panel.appendChild(loadMore);
+    }
+  } catch(err) {
+    panel.querySelector('h3').textContent = `Error: ${err.message}`;
+  }
+}
+
+function appendThumbs(grid, items) {
+  for (const photo of items) {
+    const img = document.createElement('img');
+    img.className   = 'lib-thumb';
+    img.src         = `${S.serverUrl}/v1/photos/${photo.id}/thumbnail`;
+    img.alt         = photo.name || photo.id;
+    img.title       = photo.name || photo.id;
+    img.crossOrigin = 'anonymous';
+    grid.appendChild(img);
+  }
+}
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────────
 restoreSession();

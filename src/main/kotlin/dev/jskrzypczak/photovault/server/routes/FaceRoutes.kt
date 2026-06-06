@@ -4,6 +4,8 @@ import dev.jskrzypczak.photovault.server.auth.requireAdmin
 import dev.jskrzypczak.photovault.server.dto.FaceClusterListResponse
 import dev.jskrzypczak.photovault.server.dto.FaceListResponse
 import dev.jskrzypczak.photovault.server.dto.LabelClusterRequest
+import dev.jskrzypczak.photovault.server.dto.MergeClustersRequest
+import dev.jskrzypczak.photovault.server.dto.RemoveFacesRequest
 import dev.jskrzypczak.photovault.server.errors.ApiException
 import dev.jskrzypczak.photovault.server.faces.FaceService
 import io.ktor.http.HttpStatusCode
@@ -61,6 +63,50 @@ fun Route.faceRoutes(faceService: FaceService) {
                     )
                 }
                 val cluster = faceService.labelCluster(id, req.tagId, req.categoryId)
+                call.respond(HttpStatusCode.OK, cluster)
+            }
+
+            // POST /v1/admin/face-clusters/{id}/unlabel
+            post("/{id}/unlabel") {
+                call.requireAdmin()
+                val id = call.parameters["id"]!!
+                val cluster = faceService.unlabelCluster(id)
+                call.respond(HttpStatusCode.OK, cluster)
+            }
+
+            // POST /v1/admin/face-clusters/{id}/merge
+            post("/{id}/merge") {
+                call.requireAdmin()
+                val id = call.parameters["id"]!!
+                val req = try {
+                    call.receive<MergeClustersRequest>()
+                } catch (e: Exception) {
+                    throw ApiException(
+                        slug = "validation-failed",
+                        httpStatus = HttpStatusCode.BadRequest,
+                        title = "Validation Failed",
+                        detail = "Request body must be a valid JSON object with sourceClusterIds",
+                    )
+                }
+                val cluster = faceService.mergeClusters(id, req.sourceClusterIds)
+                call.respond(HttpStatusCode.OK, cluster)
+            }
+
+            // POST /v1/admin/face-clusters/{id}/remove-faces
+            post("/{id}/remove-faces") {
+                call.requireAdmin()
+                val id = call.parameters["id"]!!
+                val req = try {
+                    call.receive<RemoveFacesRequest>()
+                } catch (e: Exception) {
+                    throw ApiException(
+                        slug = "validation-failed",
+                        httpStatus = HttpStatusCode.BadRequest,
+                        title = "Validation Failed",
+                        detail = "Request body must be a valid JSON object with faceIds",
+                    )
+                }
+                val cluster = faceService.removeFacesFromCluster(id, req.faceIds)
                 call.respond(HttpStatusCode.OK, cluster)
             }
 

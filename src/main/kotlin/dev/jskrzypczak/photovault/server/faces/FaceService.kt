@@ -9,7 +9,9 @@ import dev.jskrzypczak.photovault.server.dto.FaceDto
 import dev.jskrzypczak.photovault.server.errors.ApiException
 import io.ktor.http.HttpStatusCode
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.VarCharColumnType
+import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -142,6 +144,75 @@ class FaceService {
     }
 
     /**
+     * Removes the label (tag/category) from a cluster and reverts the auto-assignments that
+     * label() wrote.  Only removes rows where `source='auto'` and `embedding_run='label-cluster/{clusterId}'`.
+     *
+     * Note: if two clusters were labelled with the same tag and their photo sets overlap, the
+     * ON CONFLICT … DO UPDATE in labelCluster() will have overwritten embedding_run with the
+     * later run id — unlabelling the earlier cluster may then miss those shared rows. Acceptable
+     * for a personal admin tool.
+     */
+    fun unlabelCluster(clusterId: String): FaceClusterDto = transaction {
+        requireClusterExists(clusterId)
+
+        val row = FaceClusters.selectAll().where { FaceClusters.id eq clusterId }.first()
+        val currentTagId      = row[FaceClusters.tagId]
+        val currentCategoryId = row[FaceClusters.categoryId]
+
+        if (currentTagId != null) removeAutoAssignments(tagId = currentTagId, clusterId = clusterId)
+        if (currentCategoryId != null) removeAutoAssignments(categoryId = currentCategoryId, clusterId = clusterId)
+
+        FaceClusters.update({ FaceClusters.id eq clusterId }) {
+            it[FaceClusters.tagId]      = null
+            it[FaceClusters.categoryId] = null
+        }
+
+        listClusters().first { it.id == clusterId }
+    }
+
+    /**
+     * Merges [sourceClusterIds] into [targetId]: moves all their faces to the target cluster,
+     * recomputes faceCount and representativeFaceId, then deletes the source cluster rows.
+     *
+     * The target's label is preserved.  Source labels are discarded with their rows.
+     * Merged faces keep cluster_id = targetId, so cluster_faces.py won't re-cluster them.
+     */
+    fun mergeClusters(targetId: String, sourceIds: List<String>): FaceClusterDto {
+        if (targetId in sourceIds) throw ApiException(
+            slug = "validation-failed",
+            httpStatus = HttpStatusCode.BadRequest,
+            title = "Validation Failed",
+            detail = "Target cluster id must not appear in sourceClusterIds",
+        )
+        return transaction {
+            requireClusterExists(targetId)
+            sourceIds.forEach { requireClusterExists(it) }
+
+            Faces.update({ Faces.clusterId inList sourceIds }) { it[Faces.clusterId] = targetId }
+
+            recomputeClusterStats(targetId)
+            FaceClusters.deleteWhere { FaceClusters.id inList sourceIds }
+
+            listClusters().first { it.id == targetId }
+        }
+    }
+
+    /**
+     * Removes specific faces from a cluster by setting their cluster_id to NULL so they are
+     * available for re-clustering in the next categorizer run.
+     */
+    fun removeFacesFromCluster(clusterId: String, faceIds: List<String>): FaceClusterDto = transaction {
+        requireClusterExists(clusterId)
+
+        Faces.update({ (Faces.clusterId eq clusterId) and (Faces.id inList faceIds) }) {
+            it[Faces.clusterId] = null
+        }
+
+        recomputeClusterStats(clusterId)
+        listClusters().first { it.id == clusterId }
+    }
+
+    /**
      * Deletes a cluster.  `SET NULL` FK on `faces.cluster_id` clears the column automatically,
      * leaving the faces unassigned so they can be re-clustered next time.
      */
@@ -156,6 +227,36 @@ class FaceService {
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    private fun org.jetbrains.exposed.sql.Transaction.removeAutoAssignments(
+        tagId: String? = null,
+        categoryId: String? = null,
+        clusterId: String,
+    ) {
+        val runId       = "label-cluster/$clusterId"
+        val varcharType = VarCharColumnType(128)
+        if (tagId != null) {
+            exec(
+                stmt = "DELETE FROM photo_tags WHERE tag_id = ? AND source = 'auto' AND embedding_run = ?",
+                args = listOf(varcharType to tagId, varcharType to runId),
+            )
+        }
+        if (categoryId != null) {
+            exec(
+                stmt = "DELETE FROM photo_categories WHERE category_id = ? AND source = 'auto' AND embedding_run = ?",
+                args = listOf(varcharType to categoryId, varcharType to runId),
+            )
+        }
+    }
+
+    private fun org.jetbrains.exposed.sql.Transaction.recomputeClusterStats(clusterId: String) {
+        val faces = Faces.selectAll().where { Faces.clusterId eq clusterId }.toList()
+        val repFaceId = faces.maxByOrNull { it[Faces.detScore] }?.get(Faces.id)
+        FaceClusters.update({ FaceClusters.id eq clusterId }) {
+            it[FaceClusters.faceCount] = faces.size
+            it[FaceClusters.representativeFaceId] = repFaceId
+        }
+    }
 
     private fun requireClusterExists(clusterId: String) {
         FaceClusters.selectAll().where { FaceClusters.id eq clusterId }.firstOrNull()

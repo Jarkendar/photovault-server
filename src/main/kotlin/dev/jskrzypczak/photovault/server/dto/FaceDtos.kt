@@ -50,5 +50,13 @@ data class LabelClusterRequest(
     val categoryId: String? = null,
 )
 
+/** Request body for `POST /v1/admin/face-clusters/{id}/merge`. */
+@Serializable
+data class MergeClustersRequest(val sourceClusterIds: List<String>)
+
+/** Request body for `POST /v1/admin/face-clusters/{id}/remove-faces`. */
+@Serializable
+data class RemoveFacesRequest(val faceIds: List<String>)
+
 @Serializable data class FaceClusterListResponse(val items: List<FaceClusterDto>)
 @Serializable data class FaceListResponse(val items: List<FaceDto>)
