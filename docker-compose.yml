@@ -23,6 +23,8 @@ services:
       DB_USER: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       PHOTO_STORAGE_ROOT: /data/photos
+      CATEGORIZER_CMD: ${CATEGORIZER_CMD:-}
+      CATEGORIZER_WORKDIR: ${CATEGORIZER_WORKDIR:-/categorizer}
     volumes:
       - photo_storage:/data/photos
     depends_on:
