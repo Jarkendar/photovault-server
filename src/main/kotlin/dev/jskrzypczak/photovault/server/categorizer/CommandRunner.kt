@@ -2,9 +2,11 @@ package dev.jskrzypczak.photovault.server.categorizer
 
 import java.io.File
 
+data class CommandResult(val exitCode: Int, val output: String)
+
 fun interface CommandRunner {
-    /** Executes [command] via `bash -c` in [workdir], returns the exit code. */
-    fun run(command: String, workdir: String): Int
+    /** Executes [command] via `bash -c` in [workdir], returns exit code and combined stdout+stderr. */
+    fun run(command: String, workdir: String): CommandResult
 }
 
 val DefaultCommandRunner = CommandRunner { command, workdir ->
@@ -12,6 +14,7 @@ val DefaultCommandRunner = CommandRunner { command, workdir ->
         .directory(File(workdir))
         .redirectErrorStream(true)
         .start()
-    process.inputStream.copyTo(System.out)
-    process.waitFor()
+    val output = process.inputStream.readBytes().toString(Charsets.UTF_8)
+    print(output)
+    CommandResult(process.waitFor(), output)
 }

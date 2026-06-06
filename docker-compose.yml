@@ -24,9 +24,11 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       PHOTO_STORAGE_ROOT: /data/photos
       CATEGORIZER_CMD: ${CATEGORIZER_CMD:-}
-      CATEGORIZER_WORKDIR: ${CATEGORIZER_WORKDIR:-/categorizer}
+      CATEGORIZER_WORKDIR: ${CATEGORIZER_WORKDIR:-/app}
     volumes:
       - photo_storage:/data/photos
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${CATEGORIZER_ENVFILE:-/dev/null}:/categorizer/.env:ro
     depends_on:
       postgres:
         condition: service_healthy

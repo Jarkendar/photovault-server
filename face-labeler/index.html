@@ -1548,6 +1548,10 @@ function renderCatToolbar(st) {
     bar.style.width = pct + '%';
     if (st.running) {
       statusText.textContent = `${processed} / ${st.batchTotal} (${pct}%)`;
+    } else if (st.lastError) {
+      statusText.textContent = `Failed to start: ${st.lastError}`;
+    } else if (st.lastExitCode == null) {
+      statusText.textContent = 'Finished';
     } else {
       statusText.textContent = st.lastExitCode === 0
         ? `Done — processed ${st.batchTotal} photo${st.batchTotal !== 1 ? 's' : ''}`

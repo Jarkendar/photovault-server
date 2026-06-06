@@ -49,9 +49,12 @@ class CategorizerService(
         lastError.set(null)
         scope.launch {
             try {
-                val exit = runner.run(config.command, config.workdir)
-                lastExitCode.set(exit)
-                log.info("Categorizer finished with exit code $exit")
+                val result = runner.run(config.command, config.workdir)
+                lastExitCode.set(result.exitCode)
+                if (result.exitCode != 0) {
+                    lastError.set(result.output.trim().ifEmpty { null })
+                }
+                log.info("Categorizer finished with exit code ${result.exitCode}")
             } catch (e: Exception) {
                 lastError.set(e.message)
                 log.error("Categorizer failed to start", e)

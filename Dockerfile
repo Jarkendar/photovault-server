@@ -23,9 +23,9 @@ RUN ./gradlew --no-daemon shadowJar
 # ---------------------------------------------------------------------------
 FROM eclipse-temurin:21-jre AS runtime
 
-# curl is required for the docker-compose healthcheck
+# curl is required for the docker-compose healthcheck; docker.io CLI for the categorizer trigger
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl docker.io \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

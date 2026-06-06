@@ -62,7 +62,7 @@ class CategorizerRoutesTest {
     private val runCount = AtomicInteger(0)
     private val fakeRunner = dev.jskrzypczak.photovault.server.categorizer.CommandRunner { _, _ ->
         runCount.incrementAndGet()
-        0
+        dev.jskrzypczak.photovault.server.categorizer.CommandResult(0, "")
     }
 
     private val configuredConfig = CategorizerConfig(command = "echo categorize", workdir = ".")
