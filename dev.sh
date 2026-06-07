@@ -24,8 +24,8 @@ fi
 DB_URL="${DB_URL:-jdbc:postgresql://localhost:5433/${POSTGRES_DB:-photovault}}"
 DB_USER="${DB_USER:-${POSTGRES_USER:-photovault}}"
 DB_PASSWORD="${DB_PASSWORD:-${POSTGRES_PASSWORD:-change-me}}"
-PHOTO_STORAGE_ROOT="${PHOTO_STORAGE_ROOT:-./data/photos}"
-VECTOR_STORE_DIR="${VECTOR_STORE_DIR:-./data/vectors}"
+PHOTO_STORAGE_ROOT="${PHOTO_STORAGE_ROOT:-$SCRIPT_DIR/data/photos}"
+VECTOR_STORE_DIR="${VECTOR_STORE_DIR:-$SCRIPT_DIR/data/vectors}"
 JWT_SECRET="${JWT_SECRET:-dev-secret-change-me-in-production}"
 SERVER_PORT="${SERVER_PORT:-8080}"
 

@@ -35,6 +35,7 @@ class CategorizerService(
     private val lastFinishedAt = AtomicReference<Instant?>(null)
     private val lastExitCode = AtomicReference<Int?>(null)
     private val lastError = AtomicReference<String?>(null)
+    private val lastOutput = AtomicReference<String?>(null)
 
     fun triggerRun() {
         if (!config.isConfigured) throw ApiException(
@@ -47,10 +48,12 @@ class CategorizerService(
         batchTotal.set(photoService.countPhotos(PhotoQuery(processingStatus = STATUS_PENDING)).toInt())
         lastStartedAt.set(Instant.now())
         lastError.set(null)
+        lastOutput.set(null)
         scope.launch {
             try {
                 val result = runner.run(config.command, config.workdir)
                 lastExitCode.set(result.exitCode)
+                lastOutput.set(result.output.trim().ifEmpty { null })
                 if (result.exitCode != 0) {
                     lastError.set(result.output.trim().ifEmpty { null })
                 }
@@ -74,6 +77,7 @@ class CategorizerService(
         lastFinishedAt = lastFinishedAt.get()?.toString(),
         lastExitCode = lastExitCode.get(),
         lastError = lastError.get(),
+        lastOutput = lastOutput.get(),
     )
 
     fun recategorizePhoto(photoId: String) {

@@ -20,4 +20,6 @@ data class CategorizerStatusDto(
     val lastExitCode: Int?,
     /** Last error message if the process failed to start, or null. */
     val lastError: String?,
+    /** Combined stdout+stderr of the last finished run, or null. */
+    val lastOutput: String?,
 )

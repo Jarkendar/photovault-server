@@ -1456,6 +1456,7 @@ async function renderPhotos() {
         <span id="cat-status-text" class="cat-status-text"></span>
       </div>
     </div>
+    <div id="cat-summary" style="display:none;margin:8px 0 4px;padding:8px 12px;background:#1a2636;border:1px solid #2a3f55;border-radius:6px;font-size:13px;color:#ccc;line-height:1.7"></div>
     <div class="filter-chips" id="photos-filter-chips">
       <span class="filter-chip ${S.photosFilter==='all'?'active':''}"     data-filter="all">All</span>
       <span class="filter-chip ${S.photosFilter==='pending'?'active':''}" data-filter="pending">Pending</span>
@@ -1532,11 +1533,28 @@ async function loadPhotosGrid() {
   }
 }
 
+function parseCatSummary(output) {
+  if (!output) return null;
+  const line = output.split('\n').find(l => l.includes('photos processed:'));
+  if (!line) return null;
+  const n = k => { const m = line.match(new RegExp(k + ':\\s*(\\d+)')); return m ? parseInt(m[1]) : 0; };
+  return {
+    photos:   n('photos processed'),
+    tags:     n('tags inserted'),
+    cats:     n('categories inserted'),
+    denied:   n('denied skipped'),
+    faces:    n('faces detected'),
+    matched:  n('faces matched'),
+    unlabeled: n('new unlabeled faces'),
+  };
+}
+
 function renderCatToolbar(st) {
-  const btn         = document.getElementById('btn-run-cat');
+  const btn          = document.getElementById('btn-run-cat');
   const progressWrap = document.getElementById('cat-progress-wrap');
-  const bar         = document.getElementById('cat-progress-bar');
-  const statusText  = document.getElementById('cat-status-text');
+  const bar          = document.getElementById('cat-progress-bar');
+  const statusText   = document.getElementById('cat-status-text');
+  const summaryEl    = document.getElementById('cat-summary');
   if (!btn) return;
   btn.disabled    = st.running;
   btn.textContent = st.running ? 'Running…' : 'Run categorizer';
@@ -1548,17 +1566,38 @@ function renderCatToolbar(st) {
     bar.style.width = pct + '%';
     if (st.running) {
       statusText.textContent = `${processed} / ${st.batchTotal} (${pct}%)`;
+      if (summaryEl) summaryEl.style.display = 'none';
     } else if (st.lastError) {
       statusText.textContent = `Failed to start: ${st.lastError}`;
+      if (summaryEl) summaryEl.style.display = 'none';
     } else if (st.lastExitCode == null) {
       statusText.textContent = 'Finished';
+      if (summaryEl) summaryEl.style.display = 'none';
     } else {
       statusText.textContent = st.lastExitCode === 0
         ? `Done — processed ${st.batchTotal} photo${st.batchTotal !== 1 ? 's' : ''}`
         : `Finished with exit code ${st.lastExitCode}`;
+      if (summaryEl) {
+        const s = parseCatSummary(st.lastOutput);
+        if (s && st.lastExitCode === 0) {
+          summaryEl.style.display = '';
+          summaryEl.innerHTML = [
+            `<b>Photos processed:</b> ${s.photos}`,
+            `<b>Tags assigned:</b> ${s.tags}`,
+            `<b>Categories assigned:</b> ${s.cats}`,
+            s.denied  ? `<b>Skipped (denied):</b> ${s.denied}`   : null,
+            `<b>Faces detected:</b> ${s.faces}`,
+            `<b>Faces matched:</b> ${s.matched}`,
+            s.unlabeled ? `<b>Unlabeled faces:</b> ${s.unlabeled}` : null,
+          ].filter(Boolean).join('&nbsp;&nbsp;·&nbsp;&nbsp;');
+        } else {
+          summaryEl.style.display = 'none';
+        }
+      }
     }
   } else {
     progressWrap.style.display = 'none';
+    if (summaryEl) summaryEl.style.display = 'none';
   }
 }
 
@@ -1571,6 +1610,7 @@ function startCatPolling() {
       if (!st.running) {
         stopCatPolling();
         if (S.currentTab === 'photos') loadPhotosGrid();
+        await loadClusters();
       }
     } catch(e) { stopCatPolling(); }
   }, 2000);
@@ -1669,7 +1709,7 @@ document.getElementById('lightbox-recategorize-btn').addEventListener('click', a
     await api('POST', '/admin/categorizer/run');
     closeLightbox();
     startCatPolling();
-    if (S.currentTab === 'photos') loadPhotosGrid();
+    if (S.currentTab === 'photos') await loadPhotosGrid();
   } catch(err) {
     alert(`Re-categorize failed: ${err.message}`);
     btn.disabled = false;
