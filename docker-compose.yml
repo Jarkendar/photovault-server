@@ -28,7 +28,7 @@ services:
       CATEGORIZER_CMD: ${CATEGORIZER_CMD:-}
       CATEGORIZER_WORKDIR: ${CATEGORIZER_WORKDIR:-/app}
     volumes:
-      - photo_storage:/data/photos
+      - ./data/photos:/data/photos
       - /var/run/docker.sock:/var/run/docker.sock
       - ${CATEGORIZER_ENVFILE:-/dev/null}:/categorizer/.env:ro
     depends_on:
@@ -43,4 +43,3 @@ services:
 
 volumes:
   postgres_data:
-  photo_storage:
